@@ -1,30 +1,8 @@
-import type { Transaction, Customer, Attachment, FinanceOverview, ProductProfitStat, CustomerValueStat, RebateRecord } from '@/types';
+import type { Transaction, Customer, FinanceOverview, ProductProfitStat, CustomerValueStat, RebateRecord } from '@/types';
 import type { WorkSheet } from 'xlsx';
 import { formatDate } from './date';
 import { isEncrypted, encryptWithPassword, decryptWithPassword, isEncryptedBackup } from './crypto';
 import { apiClient } from '@/services/apiClient';
-
-// Blob 转 Base64（用于 JSON 序列化）
-function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const result = reader.result as string;
-      // 去掉 data:*/*;base64, 前缀
-      resolve(result.split(',')[1]);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
-}
-
-// Base64 转 Blob
-function base64ToBlob(b64: string, type: string): Blob {
-  const bytes = atob(b64);
-  const arr = new Uint8Array(bytes.length);
-  for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
-  return new Blob([arr], { type });
-}
 
 // 导出 JSON 备份（数据层已迁移后端，从后端 /api/migrate/export 获取全量明文备份）
 // P0-2：支持可选密码加密，传入密码时整个 JSON 被加密为 backup:v1: 格式
