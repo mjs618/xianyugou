@@ -1,0 +1,37 @@
+services:
+  web:
+    build:
+      context: .
+      target: web
+    container_name: xianyugou-web
+    ports:
+      - "5173:5173"
+    restart: unless-stopped
+
+  mail:
+    build:
+      context: .
+      target: mail
+    container_name: xianyugou-mail
+    ports:
+      - "3001:3001"
+    environment:
+      - MAIL_PORT=3001
+    restart: unless-stopped
+
+  # Python 后端：订单同步 / 数据统一管理（闲鱼对接）
+  backend:
+    build:
+      context: ./server/backend
+    container_name: xianyugou-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      # 数据库与加密密钥持久化到宿主机，避免容器重建丢失数据
+      - backend-data:/app/data
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:////app/data/xianyu.db
+    restart: unless-stopped
+
+volumes:
+  backend-data:

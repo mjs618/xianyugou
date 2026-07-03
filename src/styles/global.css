@@ -1,0 +1,343 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* 主题色变量 - 由 useThemeStore 动态设置，默认值须与 themes.ts 中 xianyu-orange 保持一致 */
+  --theme-primary: #e8590c;
+  --theme-primary-hover: #d9480f;
+  --theme-primary-light: #fff4e6;
+  --theme-primary-bg: #fffaf5;
+  --theme-primary-border: #ffe8cc;
+  --theme-primary-shadow-rgb: 232, 89, 12;
+
+  /* 通用色（不随主题变化） */
+  --color-dark: #1f2937;
+  --color-bg: #f5f6f8;
+  --color-surface: #ffffff;
+  --color-text-secondary: #868e96;
+  --color-border: #e9ecef;
+  --color-text-tertiary: #adb5bd;
+
+  /* 语义色令牌（功能化，不随主题变化；统一全站 success/danger/warning/info/purple） */
+  --color-success: #099268;
+  --color-success-light: #e6fcf5;
+  --color-success-border: #c3fae8;
+  --color-danger: #e03131;
+  --color-danger-light: #ffe3e3;
+  --color-danger-border: #ffc9c9;
+  --color-warning: #f59f00;
+  --color-warning-light: #fff9db;
+  --color-warning-border: #ffec99;
+  --color-info: #1971c2;
+  --color-info-light: #e7f5ff;
+  --color-purple: #5f3dc4;
+  --color-purple-light: #f3f0ff;
+}
+
+/* ===== 深色模式覆盖 ===== */
+/* 由 applyThemeToCSS 设置 data-theme="dark" 触发，覆盖通用色与语义色的浅色变体 */
+[data-theme='dark'] {
+  /* 通用色反相：主文本变浅、背景变深 */
+  --color-dark: #e9ecef;
+  --color-bg: #1a1b1e;
+  --color-surface: #1f2024;
+  --color-text-secondary: #909296;
+  --color-border: #2f3033;
+  --color-text-tertiary: #5c5f66;
+
+  /* 语义色：主色保留饱和度，light/border 改为深色透明版（避免在深色背景上过亮） */
+  --color-success-light: #15362c;
+  --color-success-border: #1f4a3c;
+  --color-danger-light: #3a1f24;
+  --color-danger-border: #4a2a2f;
+  --color-warning-light: #332814;
+  --color-warning-border: #42331a;
+  --color-info-light: #1a2838;
+  --color-purple-light: #251f3a;
+}
+
+[data-theme='dark'] ::-webkit-scrollbar-thumb {
+  background: #3a3b40;
+}
+[data-theme='dark'] ::-webkit-scrollbar-thumb:hover {
+  background: #4a4b50;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'PingFang SC', 'Microsoft YaHei', system-ui, -apple-system, sans-serif;
+  background: var(--color-bg);
+  color: var(--color-dark);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: 'cv11', 'ss01';
+}
+
+/* 数字等宽对齐 */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+/* 滚动条美化 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #ced4da;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #adb5bd;
+}
+
+/* antd 主题色覆盖 */
+.ant-btn-primary {
+  background: var(--theme-primary);
+  border-color: var(--theme-primary);
+}
+.ant-btn-primary:hover {
+  background: var(--theme-primary-hover);
+  border-color: var(--theme-primary-hover);
+}
+
+/* 卡片悬浮效果 - 克制 */
+.stat-card {
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.stat-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+/* React Flow 节点样式 */
+.referral-node {
+  padding: 10px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--theme-primary-border);
+  background: var(--color-surface);
+  font-size: 13px;
+  text-align: center;
+  min-width: 100px;
+}
+.referral-node.vip {
+  border-color: #fab005;
+  box-shadow: 0 0 0 1px rgba(250, 176, 5, 0.2);
+}
+.referral-node .node-name {
+  font-weight: 600;
+  color: var(--color-dark);
+}
+.referral-node .node-revenue {
+  color: var(--theme-primary);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+/* ===== 响应式优化 ===== */
+
+/* 移动端隐藏搜索框 */
+@media (max-width: 768px) {
+  .global-search {
+    display: none !important;
+  }
+  .ant-layout-content {
+    padding: 12px !important;
+  }
+  .ant-card {
+    margin-bottom: 12px;
+  }
+}
+
+/* ===== 页面过渡动画 ===== */
+.page-fade-enter {
+  animation: pageFadeIn 0.18s ease-out;
+}
+@keyframes pageFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ===== 卡片交互增强 - 克制 ===== */
+.ant-card-hoverable:hover {
+  border-color: var(--theme-primary-border) !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04) !important;
+}
+
+/* ===== 表格行悬浮效果 ===== */
+.ant-table-tbody > tr:hover > td {
+  background: var(--theme-primary-bg) !important;
+}
+
+/* ===== 标签样式 ===== */
+.ant-tag {
+  border-radius: 4px;
+  font-size: 12px;
+  padding: 1px 8px;
+}
+
+/* ===== 输入框聚焦增强 ===== */
+.ant-input:focus,
+.ant-input-focused,
+.ant-input-affix-wrapper:focus,
+.ant-input-affix-wrapper-focused,
+.ant-picker-focused,
+.ant-select-focused .ant-select-selector {
+  border-color: var(--theme-primary) !important;
+  box-shadow: 0 0 0 2px rgba(var(--theme-primary-shadow-rgb), 0.35) !important;
+}
+
+/* ===== 数字统计卡片 - 简洁 ===== */
+.stat-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+/* ===== 空状态样式 ===== */
+.ant-empty-description {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+/* ===== 列表项间距优化 ===== */
+.ant-list-item {
+  padding: 12px 0 !important;
+}
+
+/* ===== 模态框优化 ===== */
+.ant-modal-title {
+  color: var(--color-dark);
+  font-weight: 600;
+}
+
+/* ===== Tab 样式优化 ===== */
+.ant-tabs-tab-active .ant-tabs-tab-btn {
+  font-weight: 600 !important;
+}
+
+/* ===== 移动端底部导航 ===== */
+.mobile-bottom-nav {
+  display: none;
+}
+@media (max-width: 768px) {
+  .mobile-bottom-nav {
+    display: flex !important;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 56px;
+    background: var(--color-surface);
+    border-top: 1px solid var(--color-border);
+    z-index: 100;
+    justify-content: space-around;
+    align-items: center;
+  }
+  .mobile-bottom-nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    padding: 4px 12px;
+    border-radius: 8px;
+    transition: color 0.2s ease;
+    /* button 元素重置 */
+    background: none;
+    border: none;
+    font: inherit;
+  }
+  .mobile-bottom-nav-item.active {
+    color: var(--theme-primary);
+  }
+}
+
+/* ===== 骨架屏样式 ===== */
+.skeleton-card {
+  padding: 16px;
+  background: var(--color-surface);
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+/* ===== 滚动到顶部按钮 ===== */
+.scroll-to-top {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 99;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--theme-primary);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(var(--theme-primary-shadow-rgb), 0.2);
+  transition: opacity 0.2s ease;
+  opacity: 0;
+  pointer-events: none;
+  /* button 元素重置 */
+  border: none;
+  font: inherit;
+  line-height: 1;
+}
+.scroll-to-top.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ===== 文字截断 ===== */
+.text-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.text-ellipsis-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ===== 加载状态优化 ===== */
+.ant-spin-dot-item {
+  background-color: var(--theme-primary) !important;
+}
+
+/* ===== 表单标签增强 ===== */
+.ant-form-item-label > label {
+  font-weight: 500;
+  color: var(--color-text-secondary) !important;
+}
+
+/* ===== 分页器优化 ===== */
+.ant-pagination-item-active {
+  border-color: var(--theme-primary) !important;
+}
+.ant-pagination-item-active a {
+  color: var(--theme-primary) !important;
+}

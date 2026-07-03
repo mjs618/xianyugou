@@ -1,0 +1,10 @@
+# 后端 Docker 构建忽略项
+data/
+*.db
+*.log
+.env
+__pycache__/
+*.pyc
+.pytest_cache/
+test_selfcheck.py
+README.md
