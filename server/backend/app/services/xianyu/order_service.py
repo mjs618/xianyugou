@@ -18,7 +18,8 @@ from typing import Optional
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...models import Transaction, XianyuAccount, XianyuSyncLog, Customer
+from ...models import Transaction, XianyuAccount, XianyuOrder, XianyuSyncLog, Customer
+from ...utils.crypto import encrypt_field
 from ...utils.helpers import now_utc
 from ..customer_service import create_customer, find_by_nickname
 from ..transaction_service import create_transaction
@@ -45,27 +46,105 @@ async def _ensure_customer(db: AsyncSession, nickname: str) -> Customer:
 
 def _extract_order_no(order: dict) -> Optional[str]:
     """从订单数据提取订单号（多字段兼容）。"""
-    for key in ("bizOrderId", "bizOderId", "orderId", "tradeId"):
-        if order.get(key):
-            return str(order[key])
+    common_data = order.get("commonData")
+    sources = (order, common_data) if isinstance(common_data, dict) else (order,)
+    for source in sources:
+        for key in ("bizOrderId", "bizOderId", "orderId", "tradeId"):
+            if source.get(key):
+                return str(source[key])
     return None
 
 
 def _extract_price(order: dict) -> float:
     """提取成交价。闲鱼订单价格字段多样，分单位换算（分→元）。"""
-    for key in ("actualFee", "realTotalPrice", "totalFee", "totalPrice"):
-        val = order.get(key)
-        if val is None:
-            continue
-        try:
-            # 闲鱼价格多为分（整数），>1000 粗判为分单位
-            fval = float(val)
-            if fval > 1000 and fval == int(fval):
-                return round(fval / 100, 2)
-            return round(fval, 2)
-        except (ValueError, TypeError):
-            continue
+    price_data = order.get("priceVO")
+    sources = (order, price_data) if isinstance(price_data, dict) else (order,)
+    for source in sources:
+        for key in ("confirmFee", "actualFee", "realTotalPrice", "totalFee", "totalPrice"):
+            val = source.get(key)
+            if val is None:
+                continue
+            try:
+                # 闲鱼价格多为分（整数），>1000 粗判为分单位
+                fval = float(val)
+                if fval > 1000 and fval == int(fval):
+                    return round(fval / 100, 2)
+                return round(fval, 2)
+            except (ValueError, TypeError):
+                continue
     return 0.0
+
+
+def _extract_buyer_nick(order: dict) -> Optional[str]:
+    buyer_info = order.get("buyerInfoVO")
+    if isinstance(buyer_info, dict) and buyer_info.get("userNick"):
+        return str(buyer_info["userNick"])
+    for key in ("buyerNick", "buyer", "buyerName"):
+        if order.get(key):
+            return str(order[key])
+    return None
+
+
+def _extract_product_name(order: dict) -> Optional[str]:
+    item_info = order.get("itemVO")
+    if isinstance(item_info, dict) and item_info.get("title"):
+        return str(item_info["title"])
+    for key in ("title", "itemTitle"):
+        if order.get(key):
+            return str(order[key])
+    return None
+
+
+def _is_completed_order(order: dict) -> bool:
+    common_data = order.get("commonData")
+    status = common_data.get("orderStatus") if isinstance(common_data, dict) else None
+    status = status or order.get("orderStatus") or order.get("status")
+    if not status:
+        return True
+    return str(status).strip().upper() in {
+        "交易成功",
+        "交易完成",
+        "SUCCESS",
+        "TRADE_FINISHED",
+        "COMPLETED",
+    }
+
+
+def _extract_order_status(order: dict) -> Optional[str]:
+    common_data = order.get("commonData")
+    status = common_data.get("orderStatus") if isinstance(common_data, dict) else None
+    status = status or order.get("orderStatus") or order.get("status")
+    return str(status) if status else None
+
+
+async def upsert_order_mirror(
+    db: AsyncSession, account_id: int, order: dict
+) -> Optional[XianyuOrder]:
+    """幂等写入闲鱼订单镜像；不直接覆盖交易投影。"""
+    order_no = _extract_order_no(order)
+    if not order_no:
+        return None
+
+    existing = (
+        await db.execute(
+            select(XianyuOrder).where(
+                XianyuOrder.account_id == account_id,
+                XianyuOrder.order_no == order_no,
+            )
+        )
+    ).scalar_one_or_none()
+    mirror = existing or XianyuOrder(account_id=account_id, order_no=order_no)
+    mirror.order_status = _extract_order_status(order)
+    mirror.buyer_nick = _extract_buyer_nick(order)
+    mirror.product_name = _extract_product_name(order)
+    mirror.sale_price = _extract_price(order)
+    mirror.trade_at = _parse_trade_time(order)
+    mirror.raw_order = order
+    mirror.last_seen_at = now_utc()
+    if existing is None:
+        db.add(mirror)
+    await db.flush()
+    return mirror
 
 
 async def fetch_orders(mtop: MtopClient, *, max_pages: int = 10) -> list[dict]:
@@ -92,8 +171,12 @@ async def fetch_orders(mtop: MtopClient, *, max_pages: int = 10) -> list[dict]:
         if not orders:
             break
         all_orders.extend(orders)
-        # 不足一页说明到底
-        if len(orders) < 40:
+        module = resp.get("module") if isinstance(resp, dict) else None
+        if isinstance(module, dict) and isinstance(module.get("nextPage"), bool):
+            has_next_page = module["nextPage"]
+        else:
+            has_next_page = len(orders) >= 40
+        if not has_next_page:
             break
         page += 1
     return all_orders
@@ -104,7 +187,14 @@ def _parse_orders(resp: dict) -> list[dict]:
     if not isinstance(resp, dict):
         return []
     # 常见路径：data.orders / data.orderList / data.result / 直接是 list
-    for path in (("orders",), ("orderList",), ("result", "orders"), ("result", "orderList"), ("data",)):
+    for path in (
+        ("module", "items"),
+        ("orders",),
+        ("orderList",),
+        ("result", "orders"),
+        ("result", "orderList"),
+        ("data",),
+    ):
         cur: object = resp
         ok = True
         for key in path:
@@ -144,10 +234,18 @@ async def sync_orders_for_account(
         account.status = "invalid"
         account.last_error = error
 
+    if mtop.cookies_changed:
+        account.cookies = encrypt_field(mtop.cookie_str)
+        account.updated_at = now_utc()
+
     # 逐单去重写入
     for order in fetched:
-        order_no = _extract_order_no(order)
+        mirror = await upsert_order_mirror(db, account_id, order)
+        order_no = mirror.order_no if mirror else None
         if not order_no:
+            skipped_count += 1
+            continue
+        if not _is_completed_order(order):
             skipped_count += 1
             continue
         # 去重：已存在该订单号则跳过
@@ -160,8 +258,8 @@ async def sync_orders_for_account(
             skipped_count += 1
             continue
 
-        buyer_nick = order.get("buyerNick") or order.get("buyer") or order.get("buyerName") or f"闲鱼买家{order_no[-4:]}"
-        product_name = order.get("title") or order.get("itemTitle") or "闲鱼商品"
+        buyer_nick = _extract_buyer_nick(order) or f"闲鱼买家{order_no[-4:]}"
+        product_name = _extract_product_name(order) or "闲鱼商品"
         sale_price = _extract_price(order)
         # 交易时间
         trade_at = _parse_trade_time(order)
@@ -213,9 +311,26 @@ async def sync_orders_for_account(
 
 def _parse_trade_time(order: dict) -> datetime:
     """从订单提取交易时间，兜底当前时间。"""
-    for key in ("createTime", "tradeTime", "gmtCreate", "payTime", "orderTime"):
-        val = order.get(key)
-        if val:
+    common_data = order.get("commonData")
+    sources = (common_data, order) if isinstance(common_data, dict) else (order,)
+    for source in sources:
+        for key in (
+            "finishTime",
+            "paySuccessTime",
+            "createTime",
+            "tradeTime",
+            "gmtCreate",
+            "payTime",
+            "orderTime",
+        ):
+            val = source.get(key)
+            if not val:
+                continue
+            if isinstance(val, str):
+                try:
+                    return datetime.fromisoformat(val.replace("Z", "+00:00"))
+                except ValueError:
+                    pass
             try:
                 ts = float(val)
                 # 毫秒 → 秒

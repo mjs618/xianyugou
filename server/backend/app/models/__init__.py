@@ -18,7 +18,7 @@ from .audit import OperationLog
 from .settings import Settings as SettingsModel
 # 同时暴露原始类名，供 service 直接 import
 from .settings import Settings  # noqa: F401
-from .xianyu import XianyuAccount, XianyuSyncLog
+from .xianyu import XianyuAccount, XianyuOrder, XianyuSyncLog
 
 __all__ = [
     "Customer",
@@ -36,5 +36,6 @@ __all__ = [
     "OperationLog",
     "SettingsModel",
     "XianyuAccount",
+    "XianyuOrder",
     "XianyuSyncLog",
 ]
