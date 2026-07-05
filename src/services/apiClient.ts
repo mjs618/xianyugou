@@ -8,7 +8,8 @@
 
 // 后端地址：优先 localStorage 配置，其次默认本地开发地址
 const BACKEND_KEY = 'xianyu-backend-url';
-const DEFAULT_BACKEND = 'http://localhost:8000';
+const BUILD_BACKEND = import.meta.env.VITE_BACKEND_URL?.trim();
+const DEFAULT_BACKEND = (BUILD_BACKEND || 'http://localhost:18001').replace(/\/+$/, '');
 
 // 安全访问 localStorage（Node/SSR 等非浏览器环境降级）
 function safeStorage(): Storage | null {
@@ -89,7 +90,7 @@ async function request<T>(
   try {
     res = await fetch(url, init);
   } catch {
-    throw new ApiException(0, '无法连接后端服务，请确认后端已启动（默认 http://localhost:8000）');
+    throw new ApiException(0, `无法连接后端服务，请确认后端已启动（默认 ${DEFAULT_BACKEND}）`);
   }
 
   if (res.status === 204) return undefined as T;

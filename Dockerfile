@@ -1,7 +1,9 @@
 # 多阶段构建：前端静态服务 + 邮件服务
 
+ARG NODE_VERSION=20-alpine
+
 # ==================== 构建阶段 ====================
-FROM node:18-alpine AS builder
+FROM node:${NODE_VERSION} AS builder
 
 WORKDIR /app
 
@@ -11,10 +13,14 @@ RUN npm ci
 
 # 复制源码并构建前端产物
 COPY . .
+ARG VITE_BACKEND_URL=http://localhost:8000
+ARG VITE_MAIL_SERVER_URL=http://localhost:3001
+ENV VITE_BACKEND_URL=${VITE_BACKEND_URL}
+ENV VITE_MAIL_SERVER_URL=${VITE_MAIL_SERVER_URL}
 RUN npm run build
 
 # ==================== 前端静态服务 ====================
-FROM node:18-alpine AS web
+FROM node:${NODE_VERSION} AS web
 
 WORKDIR /app
 
@@ -29,7 +35,7 @@ EXPOSE 5173
 CMD ["node", "serve-dist.cjs"]
 
 # ==================== 邮件发送服务 ====================
-FROM node:18-alpine AS mail
+FROM node:${NODE_VERSION} AS mail
 
 WORKDIR /app
 

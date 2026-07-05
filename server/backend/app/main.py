@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
 from .database import init_db
 from .schemas import HealthResponse
+from .utils.crypto import _load_or_create_key
 from .routers import (
     customers, transactions, aftersales, rebates,
     settings as settings_router_module,
@@ -28,6 +29,7 @@ from .routers import (
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期：启动时建表 + 迁移加密存量敏感字段。"""
+    _load_or_create_key()
     await init_db()
     # 存量明文敏感字段自动加密
     from .database import AsyncSessionLocal
@@ -44,14 +46,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS：允许前端（dev 5173 / 生产 5173）访问
+# CORS: configured by CORS_ORIGINS, comma-separated.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-    ],
+    allow_origins=settings.cors_origin_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

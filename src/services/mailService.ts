@@ -4,7 +4,8 @@ import { addMailRecord } from './mailRecordService';
 import { listMailRecords } from './mailRecordService';
 
 // 本地邮件服务地址
-const MAIL_SERVER = 'http://localhost:3001';
+const BUILD_MAIL_SERVER = import.meta.env.VITE_MAIL_SERVER_URL?.trim();
+const MAIL_SERVER = (BUILD_MAIL_SERVER || 'http://localhost:13001').replace(/\/+$/, '');
 
 // 连续失败告警阈值
 const MAIL_ALERT_THRESHOLD = 3;
