@@ -5,10 +5,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..schemas import (
     XianyuAccountCreate, XianyuAccountOut, XianyuAccountTestResult, XianyuSyncResult,
+    XianyuOrderOut,
 )
 from ..services.xianyu import account_service
 from ..services.xianyu.account_service import XianyuAccountError
-from ..services.xianyu.order_service import sync_orders_for_account
+from ..services.xianyu.order_service import list_order_mirrors, sync_orders_for_account
 
 router = APIRouter(prefix="/api/xianyu", tags=["xianyu"])
 
@@ -60,6 +61,20 @@ async def sync_orders(
         return result
     except ValueError as e:
         raise HTTPException(404, str(e))
+
+
+@router.get("/accounts/{account_id}/orders", response_model=list[XianyuOrderOut])
+async def list_orders(
+    account_id: int,
+    limit: int = Query(100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+):
+    account = await account_service.get_account(db, account_id)
+    if account is None:
+        raise HTTPException(404, "闲鱼账号不存在")
+    orders = await list_order_mirrors(db, account_id, limit=limit)
+    await db.commit()
+    return orders
 
 
 @router.get("/accounts/{account_id}/sync-logs")

@@ -276,6 +276,21 @@ class XianyuSyncResult(BaseModel):
     error: Optional[str] = None
 
 
+class XianyuOrderOut(ORMBase):
+    id: int
+    account_id: int
+    order_no: str
+    order_status: Optional[str] = None
+    buyer_nick: Optional[str] = None
+    product_name: Optional[str] = None
+    sale_price: float
+    trade_at: Optional[datetime] = None
+    projected_transaction_id: Optional[int] = None
+    last_seen_at: datetime
+    created_at: datetime
+    updated_at: datetime
+
+
 # ==================== 通用 ====================
 class MessageResponse(BaseModel):
     message: str

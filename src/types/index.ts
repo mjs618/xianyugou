@@ -390,6 +390,22 @@ export interface XianyuSyncResult {
   error?: string;
 }
 
+// 闲鱼订单镜像（不含 raw_order，避免前端暴露平台原始响应）
+export interface XianyuOrder {
+  id: number;
+  account_id: number;
+  order_no: string;
+  order_status?: string;
+  buyer_nick?: string;
+  product_name?: string;
+  sale_price: number;
+  trade_at?: Date;
+  projected_transaction_id?: number;
+  last_seen_at: Date;
+  created_at: Date;
+  updated_at: Date;
+}
+
 // 同步日志
 export interface XianyuSyncLog {
   id: number;

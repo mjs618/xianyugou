@@ -5,6 +5,7 @@ import type {
   XianyuAccount,
   XianyuAccountInput,
   XianyuAccountTestResult,
+  XianyuOrder,
   XianyuSyncResult,
   XianyuSyncLog,
 } from '@/types';
@@ -21,6 +22,16 @@ function normalizeAccount(a: any): XianyuAccount {
     last_sync_at: toDate(a.last_sync_at),
     created_at: new Date(a.created_at),
     updated_at: new Date(a.updated_at),
+  };
+}
+
+function normalizeOrder(o: any): XianyuOrder {
+  return {
+    ...o,
+    trade_at: toDate(o.trade_at),
+    last_seen_at: new Date(o.last_seen_at),
+    created_at: new Date(o.created_at),
+    updated_at: new Date(o.updated_at),
   };
 }
 
@@ -62,6 +73,12 @@ export async function syncOrders(id: number, maxPages = 10): Promise<XianyuSyncR
     undefined,
     { max_pages: maxPages },
   );
+}
+
+// 查询账号的订单镜像；后端不会返回 raw_order
+export async function listOrders(id: number, limit = 100): Promise<XianyuOrder[]> {
+  const list = await apiClient.get<any[]>(`/api/xianyu/accounts/${id}/orders`, { limit });
+  return list.map(normalizeOrder);
 }
 
 // 查询同步日志

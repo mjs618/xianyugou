@@ -147,6 +147,18 @@ async def upsert_order_mirror(
     return mirror
 
 
+async def list_order_mirrors(
+    db: AsyncSession, account_id: int, *, limit: int = 100
+) -> list[XianyuOrder]:
+    stmt = (
+        select(XianyuOrder)
+        .where(XianyuOrder.account_id == account_id)
+        .order_by(XianyuOrder.last_seen_at.desc(), XianyuOrder.id.desc())
+        .limit(limit)
+    )
+    return list((await db.execute(stmt)).scalars().all())
+
+
 async def fetch_orders(mtop: MtopClient, *, max_pages: int = 10) -> list[dict]:
     """翻页拉取卖家全部成交订单。返回原始订单列表。"""
     all_orders: list[dict] = []
