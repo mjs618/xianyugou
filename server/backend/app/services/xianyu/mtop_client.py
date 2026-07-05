@@ -131,7 +131,7 @@ class MtopClient:
         try:
             body = resp.json()
         except Exception:
-            raise MtopError("PARSE_ERROR", f"响应非 JSON: {resp.text[:200]}")
+            raise MtopError("PARSE_ERROR", "闲鱼接口响应格式异常，未记录原始响应")
 
         ret = body.get("ret", [])
         ret_str = "; ".join(ret) if isinstance(ret, list) else str(ret)
