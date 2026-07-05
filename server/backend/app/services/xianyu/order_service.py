@@ -15,7 +15,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...models import Transaction, XianyuAccount, XianyuOrder, XianyuSyncLog, Customer
@@ -257,16 +257,20 @@ async def sync_orders_for_account(
         if not order_no:
             skipped_count += 1
             continue
-        if not _is_completed_order(order):
+        # 去重：已存在该订单号则跳过
+        existing_tx_id = (
+            await db.execute(
+                select(Transaction.id)
+                .where(Transaction.xianyu_order_no == order_no)
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if existing_tx_id is not None:
+            if mirror and mirror.projected_transaction_id is None:
+                mirror.projected_transaction_id = existing_tx_id
             skipped_count += 1
             continue
-        # 去重：已存在该订单号则跳过
-        exists = (
-            await db.execute(
-                select(func.count(Transaction.id)).where(Transaction.xianyu_order_no == order_no)
-            )
-        ).scalar_one()
-        if exists > 0:
+        if not _is_completed_order(order):
             skipped_count += 1
             continue
 
@@ -278,7 +282,7 @@ async def sync_orders_for_account(
 
         try:
             customer = await _ensure_customer(db, str(buyer_nick))
-            await create_transaction(
+            tx = await create_transaction(
                 db,
                 customer_id=customer.id,
                 product_name=str(product_name),
@@ -291,6 +295,8 @@ async def sync_orders_for_account(
                 notes="由闲鱼订单同步自动创建",
                 log=False,
             )
+            if mirror:
+                mirror.projected_transaction_id = tx.id
             created_count += 1
         except Exception as e:
             logger.warning("写入订单 %s 失败: %s", order_no, e)

@@ -332,6 +332,12 @@ export default function OrderSync() {
               render: (v?: string) => v ? <Tag>{v}</Tag> : '-',
             },
             {
+              title: '投影', dataIndex: 'projected_transaction_id', width: 90,
+              render: (v?: number) => v
+                ? <Tag color="green">已生成</Tag>
+                : <Tag>未生成</Tag>,
+            },
+            {
               title: '金额', dataIndex: 'sale_price', width: 90, align: 'right' as const,
               render: (v: number) => `¥${Number(v || 0).toFixed(2)}`,
             },
