@@ -52,3 +52,4 @@ desktop.ini
 *.sqlite
 *.sqlite3
 *.db
+/server/backend/data/

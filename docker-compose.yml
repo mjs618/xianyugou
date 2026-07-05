@@ -3,9 +3,13 @@ services:
     build:
       context: .
       target: web
+      args:
+        NODE_VERSION: ${NODE_VERSION:-20-alpine}
+        VITE_BACKEND_URL: ${VITE_BACKEND_URL:-http://localhost:${BACKEND_PORT:-18001}}
+        VITE_MAIL_SERVER_URL: ${VITE_MAIL_SERVER_URL:-http://localhost:${MAIL_PORT:-13001}}
     container_name: xianyugou-web
     ports:
-      - "5173:5173"
+      - "${WEB_BIND_HOST:-127.0.0.1}:${WEB_PORT:-15173}:5173"
     restart: unless-stopped
 
   mail:
@@ -14,7 +18,7 @@ services:
       target: mail
     container_name: xianyugou-mail
     ports:
-      - "3001:3001"
+      - "${MAIL_BIND_HOST:-127.0.0.1}:${MAIL_PORT:-13001}:3001"
     environment:
       - MAIL_PORT=3001
     restart: unless-stopped
@@ -25,12 +29,13 @@ services:
       context: ./server/backend
     container_name: xianyugou-backend
     ports:
-      - "8000:8000"
+      - "${BACKEND_BIND_HOST:-127.0.0.1}:${BACKEND_PORT:-18001}:8000"
     volumes:
       # 数据库与加密密钥持久化到宿主机，避免容器重建丢失数据
       - backend-data:/app/data
     environment:
       - DATABASE_URL=sqlite+aiosqlite:////app/data/xianyu.db
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:${WEB_PORT:-15173},http://127.0.0.1:${WEB_PORT:-15173}}
     restart: unless-stopped
 
 volumes:
