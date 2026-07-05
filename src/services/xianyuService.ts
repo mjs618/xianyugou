@@ -26,8 +26,9 @@ function normalizeAccount(a: any): XianyuAccount {
 }
 
 function normalizeOrder(o: any): XianyuOrder {
+  const { raw_order: _rawOrder, ...safeOrder } = o;
   return {
-    ...o,
+    ...safeOrder,
     trade_at: toDate(o.trade_at),
     last_seen_at: new Date(o.last_seen_at),
     created_at: new Date(o.created_at),

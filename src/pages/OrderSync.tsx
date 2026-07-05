@@ -11,9 +11,9 @@ import dayjs from 'dayjs';
 import type { ColumnsType } from 'antd/es/table';
 import {
   listAccounts, createAccount, updateAccount, deleteAccount, testAccount,
-  syncOrders, listSyncLogs, checkBackend,
+  syncOrders, listOrders, listSyncLogs, checkBackend,
 } from '@/services/xianyuService';
-import type { XianyuAccount, XianyuSyncResult, XianyuSyncLog } from '@/types';
+import type { XianyuAccount, XianyuOrder, XianyuSyncResult, XianyuSyncLog } from '@/types';
 
 const { TextArea } = Input;
 const { Text } = { Text: (props: any) => <span {...props} /> };
@@ -40,6 +40,9 @@ export default function OrderSync() {
   const [logModalId, setLogModalId] = useState<number | null>(null);
   const [syncLogs, setSyncLogs] = useState<XianyuSyncLog[]>([]);
   const [logLoading, setLogLoading] = useState(false);
+  const [orderModalId, setOrderModalId] = useState<number | null>(null);
+  const [mirrorOrders, setMirrorOrders] = useState<XianyuOrder[]>([]);
+  const [orderLoading, setOrderLoading] = useState(false);
   const [form] = Form.useForm();
 
   const loadAccounts = useCallback(async () => {
@@ -75,6 +78,17 @@ export default function OrderSync() {
         .finally(() => setLogLoading(false));
     }
   }, [logModalId]);
+
+  // 加载订单镜像
+  useEffect(() => {
+    if (orderModalId !== null) {
+      setOrderLoading(true);
+      listOrders(orderModalId)
+        .then(setMirrorOrders)
+        .catch(() => message.error('加载订单镜像失败'))
+        .finally(() => setOrderLoading(false));
+    }
+  }, [orderModalId]);
 
   const handleCreateOrUpdate = async () => {
     try {
@@ -172,6 +186,7 @@ export default function OrderSync() {
             onClick={() => handleSync(r.id)}
           >同步订单</Button>
           <Button size="small" icon={<ApiOutlined />} onClick={() => handleTest(r.id)}>校验</Button>
+          <Button size="small" icon={<CloudSyncOutlined />} onClick={() => setOrderModalId(r.id)}>镜像</Button>
           <Button size="small" icon={<HistoryOutlined />} onClick={() => setLogModalId(r.id)}>日志</Button>
           <Button size="small" icon={<ReloadOutlined />} onClick={() => { setEditing(r); form.setFieldsValue({ nickname: r.nickname }); setModalOpen(true); }} />
           <Popconfirm title="确认删除该账号？" onConfirm={() => handleDelete(r.id)}>
@@ -283,6 +298,53 @@ export default function OrderSync() {
             />
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* 订单镜像 Modal */}
+      <Modal
+        title="订单镜像"
+        open={orderModalId !== null}
+        onCancel={() => setOrderModalId(null)}
+        footer={null}
+        width={900}
+      >
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="这里展示的是闲鱼订单镜像摘要，不包含平台原始响应 raw_order。"
+        />
+        <Table
+          rowKey="id" size="small"
+          loading={orderLoading}
+          dataSource={mirrorOrders}
+          pagination={{ pageSize: 10 }}
+          locale={{ emptyText: <Empty description="暂无订单镜像" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+          columns={[
+            {
+              title: '订单号', dataIndex: 'order_no', width: 150,
+              render: (v: string) => <Text style={{ fontSize: 12 }}>{v}</Text>,
+            },
+            { title: '买家', dataIndex: 'buyer_nick', width: 120, render: (v?: string) => v || '-' },
+            { title: '商品', dataIndex: 'product_name', ellipsis: true, render: (v?: string) => v || '-' },
+            {
+              title: '状态', dataIndex: 'order_status', width: 110,
+              render: (v?: string) => v ? <Tag>{v}</Tag> : '-',
+            },
+            {
+              title: '金额', dataIndex: 'sale_price', width: 90, align: 'right' as const,
+              render: (v: number) => `¥${Number(v || 0).toFixed(2)}`,
+            },
+            {
+              title: '交易时间', dataIndex: 'trade_at', width: 150,
+              render: (v?: Date) => v ? dayjs(v).format('YYYY-MM-DD HH:mm') : '-',
+            },
+            {
+              title: '最近同步', dataIndex: 'last_seen_at', width: 150,
+              render: (v: Date) => dayjs(v).format('YYYY-MM-DD HH:mm'),
+            },
+          ]}
+        />
       </Modal>
 
       {/* 同步日志 Modal */}
