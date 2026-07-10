@@ -13,7 +13,6 @@
 """
 import asyncio
 import logging
-from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import select
@@ -26,6 +25,18 @@ from ..customer_service import create_customer, find_by_nickname
 from ..transaction_service import create_transaction
 from .account_service import get_plain_cookies, refresh_account_cookies_from_cookiecloud
 from .mtop_client import MtopClient, MtopError
+from .order_parser import (
+    extract_buyer_nick,
+    extract_item_id,
+    extract_order_no,
+    extract_order_status,
+    extract_price,
+    extract_product_name,
+    extract_shipped_time,
+    parse_orders,
+    parse_trade_time,
+    project_transaction_status,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,47 +47,6 @@ ORDER_API_VERSION = "1.0"
 # 默认成本价（闲鱼订单不含成本，记账系统需手动填或用此默认值）
 DEFAULT_COST_PRICE = 0.0
 PROJECTABLE_NEW_TRANSACTION_STATUSES = {"pending", "completed", "aftersales"}
-PENDING_PLATFORM_STATUSES = {
-    "已付款",
-    "待发货",
-    "已发货",
-    "待收货",
-    "WAIT_SELLER_SEND_GOODS",
-    "WAIT_BUYER_CONFIRM_GOODS",
-    "SELLER_CONSIGNED_PART",
-}
-COMPLETED_PLATFORM_STATUSES = {
-    "交易成功",
-    "交易完成",
-    "部分退款成功",
-    "SUCCESS",
-    "TRADE_FINISHED",
-    "COMPLETED",
-    "PARTIAL_REFUND_SUCCESS",
-}
-AFTERSALES_PLATFORM_STATUSES = {
-    "退款中",
-    "退款处理中",
-    "售后中",
-    "REFUNDING",
-    "REFUND_PROCESSING",
-    "TRADE_REFUNDING",
-}
-CLOSED_PLATFORM_STATUSES = {
-    "全额退款成功",
-    "FULL_REFUND_SUCCESS",
-}
-UNPROJECTED_PLATFORM_STATUSES = {
-    "待付款",
-    "待支付",
-    "未付款关闭",
-    "已关闭",
-    "交易关闭",
-    "WAIT_BUYER_PAY",
-    "CLOSED",
-    "TRADE_CLOSED",
-    "TRADE_CLOSED_BY_TAOBAO",
-}
 
 
 class SyncAlreadyRunningError(RuntimeError):
@@ -102,99 +72,6 @@ async def _ensure_customer(db: AsyncSession, nickname: str) -> Customer:
     return await create_customer(db, xianyu_nickname=nickname, log=False)
 
 
-def _extract_order_no(order: dict) -> Optional[str]:
-    """从订单数据提取订单号（多字段兼容）。"""
-    common_data = order.get("commonData")
-    sources = (order, common_data) if isinstance(common_data, dict) else (order,)
-    for source in sources:
-        for key in ("bizOrderId", "bizOderId", "orderId", "tradeId"):
-            if source.get(key):
-                return str(source[key])
-    return None
-
-
-def _extract_price(order: dict) -> float:
-    """提取成交价。闲鱼订单价格字段多样，分单位换算（分→元）。"""
-    price_data = order.get("priceVO")
-    sources = (order, price_data) if isinstance(price_data, dict) else (order,)
-    for source in sources:
-        for key in ("confirmFee", "actualFee", "realTotalPrice", "totalFee", "totalPrice"):
-            val = source.get(key)
-            if val is None:
-                continue
-            try:
-                # 闲鱼价格多为分（整数），>1000 粗判为分单位
-                fval = float(val)
-                if fval > 1000 and fval == int(fval):
-                    return round(fval / 100, 2)
-                return round(fval, 2)
-            except (ValueError, TypeError):
-                continue
-    return 0.0
-
-
-def _extract_buyer_nick(order: dict) -> Optional[str]:
-    buyer_info = order.get("buyerInfoVO")
-    if isinstance(buyer_info, dict) and buyer_info.get("userNick"):
-        return str(buyer_info["userNick"])
-    for key in ("buyerNick", "buyer", "buyerName"):
-        if order.get(key):
-            return str(order[key])
-    return None
-
-
-def _extract_product_name(order: dict) -> Optional[str]:
-    item_info = order.get("itemVO")
-    if isinstance(item_info, dict) and item_info.get("title"):
-        return str(item_info["title"])
-    for key in ("title", "itemTitle"):
-        if order.get(key):
-            return str(order[key])
-    return None
-
-
-def _extract_item_id(order: dict) -> Optional[str]:
-    item_info = order.get("itemVO")
-    sources = (item_info, order) if isinstance(item_info, dict) else (order,)
-    for source in sources:
-        for key in ("itemId", "item_id", "id", "fishId", "auctionId", "itemID"):
-            if source.get(key):
-                return str(source[key])
-    return None
-
-
-def _extract_order_status(order: dict) -> Optional[str]:
-    common_data = order.get("commonData")
-    status = common_data.get("orderStatus") if isinstance(common_data, dict) else None
-    status = status or order.get("orderStatus") or order.get("status")
-    return str(status) if status else None
-
-
-def _normalize_platform_status(status: str) -> str:
-    return status.strip().upper().replace(" ", "_")
-
-
-def _project_transaction_status(order: dict) -> Optional[str]:
-    status = _extract_order_status(order)
-    if not status:
-        return "completed"
-
-    normalized = _normalize_platform_status(status)
-    if normalized in PENDING_PLATFORM_STATUSES:
-        return "pending"
-    if normalized in COMPLETED_PLATFORM_STATUSES:
-        return "completed"
-    if normalized in AFTERSALES_PLATFORM_STATUSES:
-        return "aftersales"
-    if normalized in CLOSED_PLATFORM_STATUSES:
-        return "closed"
-    if normalized in UNPROJECTED_PLATFORM_STATUSES:
-        return None
-    if "退款" in status and ("处理中" in status or "中" in status):
-        return "aftersales"
-    return None
-
-
 def _apply_order_projection_to_transaction(tx: Transaction, order: dict, projected_status: str) -> None:
     changed = False
     if tx.status != projected_status:
@@ -202,7 +79,7 @@ def _apply_order_projection_to_transaction(tx: Transaction, order: dict, project
         changed = True
 
     if projected_status == "completed":
-        shipped_at = _extract_shipped_time(order) or tx.shipped_at
+        shipped_at = extract_shipped_time(order) or tx.shipped_at
         if shipped_at and tx.shipped_at != shipped_at:
             tx.shipped_at = shipped_at
             changed = True
@@ -232,7 +109,7 @@ async def upsert_order_mirror(
     db: AsyncSession, account_id: int, order: dict
 ) -> Optional[XianyuOrder]:
     """幂等写入闲鱼订单镜像；不直接覆盖交易投影。"""
-    order_no = _extract_order_no(order)
+    order_no = extract_order_no(order)
     if not order_no:
         return None
 
@@ -245,11 +122,11 @@ async def upsert_order_mirror(
         )
     ).scalar_one_or_none()
     mirror = existing or XianyuOrder(account_id=account_id, order_no=order_no)
-    mirror.order_status = _extract_order_status(order)
-    mirror.buyer_nick = _extract_buyer_nick(order)
-    mirror.product_name = _extract_product_name(order)
-    mirror.sale_price = _extract_price(order)
-    mirror.trade_at = _parse_trade_time(order)
+    mirror.order_status = extract_order_status(order)
+    mirror.buyer_nick = extract_buyer_nick(order)
+    mirror.product_name = extract_product_name(order)
+    mirror.sale_price = extract_price(order)
+    mirror.trade_at = parse_trade_time(order, fallback=now_utc())
     mirror.raw_order = order
     mirror.last_seen_at = now_utc()
     if existing is None:
@@ -275,7 +152,7 @@ async def _find_template_for_order(
     account_id: int,
     order: dict,
 ) -> Optional[ProductTemplate]:
-    item_id = _extract_item_id(order)
+    item_id = extract_item_id(order)
     if not item_id:
         return None
     return (
@@ -312,7 +189,7 @@ async def fetch_orders(mtop: MtopClient, *, max_pages: int = 10) -> list[dict]:
             logger.warning("拉取订单第 %s 页失败（已有部分数据）: %s", page, e)
             break
 
-        orders = _parse_orders(resp)
+        orders = parse_orders(resp)
         if not orders:
             break
         all_orders.extend(orders)
@@ -325,32 +202,6 @@ async def fetch_orders(mtop: MtopClient, *, max_pages: int = 10) -> list[dict]:
             break
         page += 1
     return all_orders
-
-
-def _parse_orders(resp: dict) -> list[dict]:
-    """从 MTOP 响应提取订单列表（兼容多种返回结构）。"""
-    if not isinstance(resp, dict):
-        return []
-    # 常见路径：data.orders / data.orderList / data.result / 直接是 list
-    for path in (
-        ("module", "items"),
-        ("orders",),
-        ("orderList",),
-        ("result", "orders"),
-        ("result", "orderList"),
-        ("data",),
-    ):
-        cur: object = resp
-        ok = True
-        for key in path:
-            if isinstance(cur, dict) and key in cur:
-                cur = cur[key]
-            else:
-                ok = False
-                break
-        if ok and isinstance(cur, list):
-            return cur
-    return []
 
 
 async def sync_orders_for_account(
@@ -414,7 +265,7 @@ async def _sync_orders_for_account_unlocked(
         if not order_no:
             skipped_count += 1
             continue
-        projected_status = _project_transaction_status(order)
+        projected_status = project_transaction_status(order)
         # 去重：已存在该订单号则更新原投影，不重复创建交易
         existing_tx = (
             await db.execute(
@@ -434,16 +285,16 @@ async def _sync_orders_for_account_unlocked(
             skipped_count += 1
             continue
 
-        buyer_nick = _extract_buyer_nick(order) or f"闲鱼买家{order_no[-4:]}"
-        product_name = _extract_product_name(order) or "闲鱼商品"
-        sale_price = _extract_price(order)
+        buyer_nick = extract_buyer_nick(order) or f"闲鱼买家{order_no[-4:]}"
+        product_name = extract_product_name(order) or "闲鱼商品"
+        sale_price = extract_price(order)
         template = await _find_template_for_order(db, account_id, order)
         product_template_id = template.id if template else None
         cost_price = template.default_cost if template else DEFAULT_COST_PRICE
         warranty_days = template.warranty_days if template else None
         # 交易时间
-        trade_at = _parse_trade_time(order)
-        shipped_at = _extract_shipped_time(order)
+        trade_at = parse_trade_time(order, fallback=now_utc())
+        shipped_at = extract_shipped_time(order)
 
         try:
             customer = await _ensure_customer(db, str(buyer_nick))
@@ -493,65 +344,3 @@ async def _sync_orders_for_account_unlocked(
         "skipped_count": skipped_count,
         "error": error,
     }
-
-
-def _parse_trade_time(order: dict) -> datetime:
-    """从订单提取交易时间，兜底当前时间。"""
-    return _parse_order_time(
-        order,
-        (
-            "finishTime",
-            "paySuccessTime",
-            "createTime",
-            "tradeTime",
-            "gmtCreate",
-            "payTime",
-            "orderTime",
-        ),
-        fallback=now_utc(),
-    )
-
-
-def _extract_shipped_time(order: dict) -> Optional[datetime]:
-    """从订单提取卖家发货时间。"""
-    return _parse_order_time(
-        order,
-        (
-            "consignTime",
-            "sellerShipTime",
-            "shipTime",
-            "sendTime",
-            "deliveryTime",
-            "gmtConsign",
-            "gmtSend",
-        ),
-    )
-
-
-def _parse_order_time(
-    order: dict,
-    keys: tuple[str, ...],
-    *,
-    fallback: Optional[datetime] = None,
-) -> Optional[datetime]:
-    common_data = order.get("commonData")
-    sources = (common_data, order) if isinstance(common_data, dict) else (order,)
-    for source in sources:
-        for key in keys:
-            val = source.get(key)
-            if not val:
-                continue
-            if isinstance(val, str):
-                try:
-                    return datetime.fromisoformat(val.replace("Z", "+00:00"))
-                except ValueError:
-                    pass
-            try:
-                ts = float(val)
-                # 毫秒 → 秒
-                if ts > 1e12:
-                    ts = ts / 1000
-                return datetime.utcfromtimestamp(ts)
-            except (ValueError, TypeError):
-                continue
-    return fallback
