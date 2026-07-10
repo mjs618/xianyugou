@@ -143,3 +143,29 @@ docker compose exec backend python -m app.maintenance.database_backup verify --d
 ```
 
 数据库与 `data/secret.key` 必须配套保存。工具不会复制或打印密钥。实际恢复涉及覆盖运行数据库，必须先停止后端并由操作者明确执行；本工具只负责创建和校验备份。
+
+## 数据库版本迁移
+
+数据库结构由 `app/migrations` 下的 Alembic 版本管理。应用启动只检查数据库是否位于 packaged head，不会自动建表或升级；版本缺失、落后或超前时，后端拒绝启动。
+
+现有未纳入 Alembic 的数据库只能在备份验证通过后接管一次：
+
+```powershell
+docker compose run --rm backend python -m app.maintenance.database_schema adopt
+```
+
+`adopt` 会先校验所有必需表和列；发现结构缺失时会在写入版本号前停止。校验通过后，数据库先标记到基线版本，再执行兼容迁移。
+
+新数据库或后续版本升级使用：
+
+```powershell
+docker compose run --rm backend python -m app.maintenance.database_schema upgrade
+```
+
+只读查看当前版本与 packaged head：
+
+```powershell
+docker compose exec backend python -m app.maintenance.database_schema current
+```
+
+结构升级前必须按上一节创建并验证数据库备份。迁移失败时不要继续启动新容器，应恢复匹配的数据库与 `data/secret.key`，再回退到上一个后端镜像。
