@@ -1,5 +1,5 @@
 """闲鱼商品拉取与镜像导入服务。"""
-from typing import Any, Optional
+from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +8,15 @@ from ...models import ProductTemplate, XianyuAccount, XianyuItem
 from ...utils.crypto import encrypt_field
 from ...utils.helpers import now_utc
 from .account_service import get_plain_cookies, refresh_account_cookies_from_cookiecloud
+from .item_parser import (
+    extract_image_url,
+    extract_item_id,
+    extract_price,
+    extract_status,
+    extract_title,
+    extract_user_id,
+    parse_items,
+)
 from .mtop_client import MtopClient, MtopError
 
 ITEM_LIST_API = "mtop.idle.web.xyh.item.list"
@@ -15,151 +24,10 @@ ACCOUNT_API = "mtop.idle.web.user.page.account"
 ITEM_API_VERSION = "1.0"
 
 
-def _nested(source: dict, *path: str) -> Any:
-    cur: Any = source
-    for key in path:
-        if not isinstance(cur, dict):
-            return None
-        cur = cur.get(key)
-    return cur
-
-
-def _coerce_price(value: Any) -> Optional[float]:
-    if value is None:
-        return None
-    if isinstance(value, dict):
-        for key in ("price", "priceText", "value", "amount", "cent"):
-            price = _coerce_price(value.get(key))
-            if price is not None:
-                return price
-        return None
-    text = str(value).strip().replace("¥", "").replace("￥", "").replace(",", "")
-    if not text:
-        return None
-    try:
-        amount = float(text)
-    except ValueError:
-        return None
-    if amount > 1000 and amount == int(amount):
-        return round(amount / 100, 2)
-    return round(amount, 2)
-
-
-def _first_text(*values: Any) -> Optional[str]:
-    for value in values:
-        if value is None:
-            continue
-        text = str(value).strip()
-        if text:
-            return text
-    return None
-
-
-def _unwrap_item(item: dict) -> dict:
-    for key in ("cardData", "item", "itemDO", "itemVO", "itemInfo", "data", "detailParams"):
-        nested = item.get(key)
-        if isinstance(nested, dict):
-            return {**item, **nested}
-    return item
-
-
-def _extract_item_id(item: dict) -> Optional[str]:
-    data = _unwrap_item(item)
-    return _first_text(
-        data.get("itemId"),
-        data.get("item_id"),
-        data.get("id"),
-        data.get("fishId"),
-        data.get("auctionId"),
-        data.get("itemID"),
-    )
-
-
-def _extract_title(item: dict) -> Optional[str]:
-    data = _unwrap_item(item)
-    return _first_text(
-        data.get("title"),
-        data.get("itemTitle"),
-        data.get("name"),
-        data.get("subject"),
-        _nested(data, "titleInfo", "title"),
-    )
-
-
-def _extract_price(item: dict) -> float:
-    data = _unwrap_item(item)
-    for value in (
-        data.get("price"),
-        data.get("soldPrice"),
-        data.get("currentPrice"),
-        data.get("reservePrice"),
-        _nested(data, "priceInfo", "price"),
-        _nested(data, "priceInfo", "priceText"),
-        _nested(data, "priceVO", "price"),
-        _nested(data, "priceVO", "realPrice"),
-    ):
-        price = _coerce_price(value)
-        if price is not None:
-            return price
-    return 0.0
-
-
-def _extract_status(item: dict) -> Optional[str]:
-    data = _unwrap_item(item)
-    return _first_text(
-        data.get("itemStatus"),
-        data.get("status"),
-        data.get("statusText"),
-        data.get("publishStatus"),
-        data.get("soldStatus"),
-    )
-
-
-def _extract_image_url(item: dict) -> Optional[str]:
-    data = _unwrap_item(item)
-    return _first_text(
-        data.get("picUrl"),
-        data.get("image"),
-        data.get("itemPicUrl"),
-        data.get("cover"),
-        _nested(data, "picInfo", "picUrl"),
-        _nested(data, "imageInfo", "url"),
-    )
-
-
-def _parse_items(resp: dict) -> list[dict]:
-    if not isinstance(resp, dict):
-        return []
-    for path in (
-        ("module", "items"),
-        ("module", "list"),
-        ("module", "itemList"),
-        ("module", "cardList"),
-        ("cardList",),
-        ("items",),
-        ("itemList",),
-        ("list",),
-        ("result", "items"),
-        ("result", "itemList"),
-        ("data",),
-    ):
-        cur: Any = resp
-        ok = True
-        for key in path:
-            if isinstance(cur, dict) and key in cur:
-                cur = cur[key]
-            else:
-                ok = False
-                break
-        if ok and isinstance(cur, list):
-            return [item for item in cur if isinstance(item, dict)]
-    return []
-
-
 async def upsert_item_mirror(
     db: AsyncSession, account_id: int, item: dict
 ) -> Optional[XianyuItem]:
-    item_id = _extract_item_id(item)
+    item_id = extract_item_id(item)
     if not item_id:
         return None
 
@@ -172,10 +40,10 @@ async def upsert_item_mirror(
         )
     ).scalar_one_or_none()
     mirror = existing or XianyuItem(account_id=account_id, item_id=item_id)
-    mirror.title = _extract_title(item)
-    mirror.price = _extract_price(item)
-    mirror.item_status = _extract_status(item)
-    mirror.image_url = _extract_image_url(item)
+    mirror.title = extract_title(item)
+    mirror.price = extract_price(item)
+    mirror.item_status = extract_status(item)
+    mirror.image_url = extract_image_url(item)
     mirror.raw_item = item
     mirror.last_seen_at = now_utc()
     if existing is None:
@@ -196,27 +64,12 @@ async def list_item_mirrors(
     return list((await db.execute(stmt)).scalars().all())
 
 
-def _extract_user_id(resp: dict) -> Optional[str]:
-    for path in (
-        ("module", "base", "userId"),
-        ("module", "base", "uid"),
-        ("module", "userId"),
-        ("base", "userId"),
-        ("userId",),
-    ):
-        value = _nested(resp, *path)
-        text = _first_text(value)
-        if text:
-            return text
-    return None
-
-
 async def _fetch_user_id(mtop: MtopClient) -> Optional[str]:
     try:
         resp = await mtop.request(ACCOUNT_API, {}, version=ITEM_API_VERSION)
     except MtopError:
         return None
-    return _extract_user_id(resp)
+    return extract_user_id(resp)
 
 
 async def fetch_items(mtop: MtopClient, *, user_id: Optional[str], max_pages: int = 5) -> list[dict]:
@@ -237,7 +90,7 @@ async def fetch_items(mtop: MtopClient, *, user_id: Optional[str], max_pages: in
             data["nextPageNum"] = next_page_num
 
         resp = await mtop.request(ITEM_LIST_API, data, version=ITEM_API_VERSION)
-        items = _parse_items(resp)
+        items = parse_items(resp)
         if not items:
             break
         all_items.extend(items)
