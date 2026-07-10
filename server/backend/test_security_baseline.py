@@ -1,3 +1,4 @@
+import re
 import subprocess
 from pathlib import Path
 
@@ -128,4 +129,4 @@ def test_backend_reads_cors_origins_from_environment(monkeypatch):
     main_source = (REPO_ROOT / "server/backend/app/main.py").read_text(encoding="utf-8")
 
     assert configured.cors_origin_list == origins.split(",")
-    assert "allow_origins=settings.cors_origin_list" in main_source
+    assert re.search(r"allow_origins=\w+\.cors_origin_list", main_source)

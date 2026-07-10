@@ -9,13 +9,18 @@ from datetime import datetime, timezone
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .config import settings
+from .config import settings as app_settings
 from .database import init_db
 from .schemas import HealthResponse
 from .utils.crypto import _load_or_create_key
 from .routers import (
     customers, transactions, aftersales, rebates,
-    settings as settings_router_module,
+    settings,
+    product_templates,
+    finance,
+    expenses,
+    audit,
+    migrate,
     xianyu,
     warranty,
     referral,
@@ -42,7 +47,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title=settings.app_name,
+    title=app_settings.app_name,
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -50,7 +55,7 @@ app = FastAPI(
 # CORS: configured by CORS_ORIGINS, comma-separated.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origin_list,
+    allow_origins=app_settings.cors_origin_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -67,12 +72,12 @@ app.include_router(customers.router)
 app.include_router(transactions.router)
 app.include_router(aftersales.router)
 app.include_router(rebates.router)
-app.include_router(settings_router_module.settings_router)
-app.include_router(settings_router_module.templates_router)
-app.include_router(settings_router_module.finance_router)
-app.include_router(settings_router_module.expenses_router)
-app.include_router(settings_router_module.audit_router)
-app.include_router(settings_router_module.migrate_router)
+app.include_router(settings.router)
+app.include_router(product_templates.router)
+app.include_router(finance.router)
+app.include_router(expenses.router)
+app.include_router(audit.router)
+app.include_router(migrate.router)
 app.include_router(xianyu.router)
 app.include_router(warranty.router)
 app.include_router(referral.router)
@@ -85,4 +90,9 @@ app.include_router(attachments.router)
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.main:app", host=settings.host, port=settings.port, reload=True)
+    uvicorn.run(
+        "app.main:app",
+        host=app_settings.host,
+        port=app_settings.port,
+        reload=True,
+    )
