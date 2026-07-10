@@ -14,4 +14,13 @@ describe('backend-only page data boundary', () => {
     const source = readFileSync(resolve(file), 'utf8');
     expect(source).not.toContain("from '@/db'");
   });
+
+  it('设置页不再暴露本地数据库迁移和浏览器端字段加密状态', () => {
+    const source = readFileSync(resolve('src/pages/Settings.tsx'), 'utf8');
+
+    expect(source).not.toContain("from '@/db'");
+    expect(source).not.toContain('handleMigrateToBackend');
+    expect(source).not.toContain("key: 'migrate'");
+    expect(source).not.toContain('Web Crypto API');
+  });
 });

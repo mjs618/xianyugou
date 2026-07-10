@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Card, Tabs, Form, InputNumber, Input, Button, Select, Table, Space, message, Popconfirm, Modal, Row, Col, Switch, Tag, Alert, Descriptions, Skeleton, Empty, Typography, Upload, Segmented } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, DownloadOutlined, UploadOutlined, DatabaseOutlined, ExperimentOutlined, BellOutlined, CheckOutlined, BgColorsOutlined, MailOutlined, AppstoreOutlined, SettingOutlined, HistoryOutlined, SafetyOutlined, ReloadOutlined, FileExcelOutlined, FileTextOutlined, UndoOutlined, CloudSyncOutlined, CloudDownloadOutlined, CloudUploadOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, DownloadOutlined, UploadOutlined, DatabaseOutlined, ExperimentOutlined, BellOutlined, CheckOutlined, BgColorsOutlined, MailOutlined, AppstoreOutlined, SettingOutlined, HistoryOutlined, SafetyOutlined, ReloadOutlined, FileExcelOutlined, FileTextOutlined, UndoOutlined, CloudDownloadOutlined, CloudUploadOutlined } from '@ant-design/icons';
 import { listTemplates, createTemplate, updateTemplate, deleteTemplate } from '@/services/productTemplateService';
 import { getSettings, updateSettings } from '@/services/settingsService';
 import { getFinanceOverview, getProductProfitStats, getCustomerValueStats } from '@/services/financeService';
@@ -8,7 +8,6 @@ import { listTransactions } from '@/services/transactionService';
 import { listCustomers } from '@/services/customerService';
 import { listRebates } from '@/services/rebateService';
 import { exportJSON, importJSON, downloadFile, downloadBlob, exportTransactionsCSV, exportCustomersCSV, exportFinanceReportExcel } from '@/utils/export';
-import { apiClient, checkBackend } from '@/services/apiClient';
 import { seedDemoData, hasData } from '@/utils/seed';
 import { requestNotificationPermission, getNotificationPermission, runAllReminderChecks } from '@/services/notificationService';
 import { listLogs, clearLogs, getLogCount } from '@/services/auditLogService';
@@ -20,7 +19,7 @@ import {
   syncItems as syncXianyuItems,
 } from '@/services/xianyuService';
 import type { XianyuItemTemplateProjectionFilter } from '@/services/xianyuService';
-import { isEncrypted, isEncryptedBackup } from '@/utils/crypto';
+import { isEncryptedBackup } from '@/utils/crypto';
 import { getWarrantyDaysLabel } from '@/utils/warranty';
 import {
   listTrashedCustomers,
@@ -34,7 +33,6 @@ import {
   purgeAfterSales,
   SOFT_DELETE_RETENTION_DAYS,
 } from '@/services/trashService';
-import { db } from '@/db';
 import { useAppStore } from '@/store/useAppStore';
 import { useThemeStore } from '@/store/useThemeStore';
 import { themes } from '@/config/themes';
@@ -104,7 +102,6 @@ export default function SettingsPage() {
   const [auditTotal, setAuditTotal] = useState(0);
   const [auditModuleFilter, setAuditModuleFilter] = useState<AuditModule | undefined>(undefined);
   const [auditPage, setAuditPage] = useState(1);
-  const [smtpEncrypted, setSmtpEncrypted] = useState(false);
   // P0-2 备份加密：导出/导入时可选密码
   const [exportPassword, setExportPassword] = useState('');
   const [importFileContent, setImportFileContent] = useState<string | null>(null);
@@ -116,57 +113,6 @@ export default function SettingsPage() {
   const [trashedTransactions, setTrashedTransactions] = useState<Transaction[]>([]);
   const [trashedAfterSales, setTrashedAfterSales] = useState<AfterSales[]>([]);
   const [trashLoading, setTrashLoading] = useState(false);
-  // 数据迁移到后端
-  const [migrateBackendOnline, setMigrateBackendOnline] = useState<boolean | null>(null);
-  const [migrating, setMigrating] = useState(false);
-  const [migrateResult, setMigrateResult] = useState<{ counts: Record<string, number> } | null>(null);
-
-  const checkMigrateBackend = async () => {
-    setMigrateBackendOnline(await checkBackend());
-  };
-
-  // 一键迁移：导出本地 IndexedDB 全量数据 → 上传到后端 /api/migrate/import
-  const handleMigrateToBackend = async () => {
-    setMigrating(true);
-    setMigrateResult(null);
-    try {
-      // 复用现有导出逻辑（含敏感字段解密为明文）
-      const jsonStr = await exportJSON();
-      const backup = JSON.parse(jsonStr);
-      const result = await apiClient.post<{ success: boolean; counts: Record<string, number> }>('/api/migrate/import', backup);
-      setMigrateResult({ counts: result.counts });
-      message.success('数据已迁移到后端');
-    } catch (err) {
-      console.error('迁移失败:', err);
-      message.error(err instanceof Error ? err.message : '迁移失败');
-    } finally {
-      setMigrating(false);
-    }
-  };
-
-  // 拉取后端数据覆盖回本地（反向同步）
-  const handlePullFromBackend = async () => {
-    Modal.confirm({
-      title: '从后端恢复到本地',
-      content: '此操作会用后端数据覆盖本地所有数据，且不可撤销。确定继续吗？',
-      okText: '确认恢复',
-      okType: 'danger',
-      cancelText: '取消',
-      onOk: async () => {
-        try {
-          const backup = await apiClient.get<any>('/api/migrate/export');
-          await importJSON(JSON.stringify(backup));
-          message.success('已从后端恢复数据到本地');
-          refreshAll();
-          loadTemplates();
-          loadSettings();
-        } catch (err) {
-          message.error(err instanceof Error ? err.message : '恢复失败');
-        }
-      },
-    });
-  };
-
   const loadTemplates = async () => {
     setTemplates(await listTemplates());
   };
@@ -184,9 +130,6 @@ export default function SettingsPage() {
     setSettings(s);
     settingsForm.setFieldsValue(s);
     mailForm.setFieldsValue(s);
-    // 检查数据库中原始值是否已加密（getSettings 返回的是解密后的明文）
-    const raw = await db.settings.get(1);
-    setSmtpEncrypted(isEncrypted(raw?.smtp_pass));
   };
 
   useEffect(() => {
@@ -325,13 +268,6 @@ export default function SettingsPage() {
   useEffect(() => {
     if (activeTab === 'trash') {
       loadTrash();
-    }
-  }, [activeTab]);
-
-  // 切换到迁移 Tab 时自动检测后端
-  useEffect(() => {
-    if (activeTab === 'migrate') {
-      checkMigrateBackend();
     }
   }, [activeTab]);
 
@@ -1213,10 +1149,10 @@ export default function SettingsPage() {
                 <Card type="inner" title={<span><SafetyOutlined /> 敏感字段加密</span>}>
                   <Descriptions column={1} size="small">
                     <Descriptions.Item label="SMTP 授权码">
-                      {smtpEncrypted ? <Tag color="green">已加密（AES-256-GCM）</Tag> : <Tag color="orange">未加密</Tag>}
+                      <Tag color="green">后端加密存储（AES-256-GCM）</Tag>
                     </Descriptions.Item>
                     <Descriptions.Item label="GPT 密码 / 邮箱密码">
-                      <Tag color="green">写入时自动加密</Tag>
+                      <Tag color="green">后端写入时自动加密</Tag>
                     </Descriptions.Item>
                   </Descriptions>
                   <Alert
@@ -1224,89 +1160,15 @@ export default function SettingsPage() {
                     showIcon
                     style={{ marginTop: 12 }}
                     message="加密说明"
-                    description="敏感字段使用 Web Crypto API（AES-GCM 256位）加密存储。主密钥为 non-extractable 类型，无法被 JavaScript 读取原始密钥材料。首次启动时自动将存量明文数据加密。备份导出时解密为明文，恢复后自动重新加密。"
+                    description="敏感字段由 FastAPI 后端使用 AES-256-GCM 加密后写入数据库，密钥保存在后端 data/secret.key。恢复数据时需同时保留数据库与密钥文件。"
                   />
                 </Card>
                 <Card type="inner" title="数据安全建议">
                   <ul style={{ margin: 0, paddingLeft: 20, color: 'var(--color-text-secondary)', fontSize: 13, lineHeight: 2 }}>
                     <li>定期导出 JSON 备份并妥善保管（含敏感信息，请勿泄露）</li>
-                    <li>浏览器清除数据将同时删除主密钥，导致已加密数据无法解密</li>
-                    <li>跨设备迁移时请使用「数据备份与恢复」功能，新设备将自动生成新密钥并加密</li>
+                    <li>备份服务器数据时，同时备份数据库文件与 data/secret.key</li>
+                    <li>跨设备恢复时使用「数据备份与恢复」功能，并妥善保管备份密码</li>
                   </ul>
-                </Card>
-              </Space>
-            ),
-          },
-          {
-            key: 'migrate',
-            label: <span><CloudSyncOutlined /> 迁移到后端</span>,
-            children: (
-              <Space direction="vertical" size={16} style={{ width: '100%' }}>
-                <Alert
-                  type="info"
-                  showIcon
-                  message="数据迁移到后端"
-                  description={
-                    <span>
-                      将本地浏览器的全部记账数据（客户、交易、售后、返利等）一键迁移到后端数据库统一管理。
-                      迁移后可使用「订单同步」自动拉取闲鱼订单，数据在所有设备间共享。
-                      <br />
-                      <Text style={{ fontSize: 12 }}>迁移是覆盖式操作：后端已有数据将被本地数据替换。</Text>
-                    </span>
-                  }
-                />
-                <Card type="inner" title={<span><CloudSyncOutlined /> 后端连接状态</span>}>
-                  <Space>
-                    {migrateBackendOnline === null && <Tag color="default">检测中...</Tag>}
-                    {migrateBackendOnline === true && <Tag color="green" icon={<CheckOutlined />}>后端已连接</Tag>}
-                    {migrateBackendOnline === false && <Tag color="red">后端未连接</Tag>}
-                    <Button icon={<ReloadOutlined />} onClick={checkMigrateBackend}>重新检测</Button>
-                  </Space>
-                </Card>
-
-                {migrateBackendOnline === false && (
-                  <Alert
-                    type="warning" showIcon
-                    message="后端服务未启动"
-                    description={
-                      <span>
-                        请先启动后端服务：在 <Text code>server/backend</Text> 目录运行
-                        <Text code> uvicorn app.main:app --port 8000</Text>，启动后点击「重新检测」。
-                      </span>
-                    }
-                  />
-                )}
-
-                <Card type="inner" title={<span><CloudUploadOutlined /> 上传本地数据到后端</span>}>
-                  <p style={{ color: 'var(--color-text-secondary)' }}>
-                    导出本地全部数据并上传到后端。完成后，本地数据保持不变，可随时双向同步。
-                  </p>
-                  <Button
-                    type="primary" icon={<CloudUploadOutlined />}
-                    disabled={migrateBackendOnline !== true}
-                    loading={migrating}
-                    onClick={handleMigrateToBackend}
-                  >迁移到后端</Button>
-                  {migrateResult && (
-                    <Descriptions column={2} size="small" style={{ marginTop: 16 }} title="迁移结果">
-                      {Object.entries(migrateResult.counts).map(([k, v]) => (
-                        <Descriptions.Item key={k} label={k}>{v} 条</Descriptions.Item>
-                      ))}
-                    </Descriptions>
-                  )}
-                </Card>
-
-                <Card type="inner" title={<span><CloudDownloadOutlined /> 从后端恢复到本地</span>}>
-                  <p style={{ color: 'var(--color-text-secondary)' }}>
-                    将后端数据下载并覆盖本地浏览器数据。适用于换设备后恢复，或后端已通过订单同步产生了新数据时拉取到本地。
-                  </p>
-                  <Popconfirm
-                    title="将用后端数据覆盖本地，确认？"
-                    onConfirm={handlePullFromBackend}
-                    disabled={migrateBackendOnline !== true}
-                  >
-                    <Button icon={<CloudDownloadOutlined />} disabled={migrateBackendOnline !== true}>从后端恢复</Button>
-                  </Popconfirm>
                 </Card>
               </Space>
             ),
