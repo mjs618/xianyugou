@@ -1,4 +1,5 @@
 import json
+import os
 import sqlite3
 import subprocess
 import sys
@@ -66,3 +67,73 @@ def test_verify_backup_detects_modified_database(tmp_path):
 
     with pytest.raises(BackupError, match="checksum mismatch"):
         verify_backup(destination, manifest_path)
+
+
+def test_cli_create_and_verify(tmp_path):
+    source = tmp_path / "source.db"
+    destination = tmp_path / "snapshot.db"
+    create_source_database(source)
+    database_url = f"sqlite+aiosqlite:///{source.as_posix()}"
+
+    created = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "app.maintenance.database_backup",
+            "create",
+            "--output",
+            str(destination),
+        ],
+        cwd=Path(__file__).parent,
+        env={**os.environ, "DATABASE_URL": database_url},
+        capture_output=True,
+        text=True,
+    )
+    assert created.returncode == 0
+    assert "Backup verified:" in created.stdout
+
+    verified = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "app.maintenance.database_backup",
+            "verify",
+            "--database",
+            str(destination),
+            "--manifest",
+            str(destination.with_suffix(".manifest.json")),
+        ],
+        cwd=Path(__file__).parent,
+        capture_output=True,
+        text=True,
+    )
+    assert verified.returncode == 0
+    assert "Backup verified:" in verified.stdout
+
+
+def test_cli_does_not_overwrite_existing_backup(tmp_path):
+    source = tmp_path / "source.db"
+    destination = tmp_path / "snapshot.db"
+    create_source_database(source)
+    destination.write_bytes(b"existing")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "app.maintenance.database_backup",
+            "create",
+            "--output",
+            str(destination),
+        ],
+        cwd=Path(__file__).parent,
+        env={
+            **os.environ,
+            "DATABASE_URL": f"sqlite+aiosqlite:///{source.as_posix()}",
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 1
+    assert "backup destination already exists" in result.stderr
+    assert destination.read_bytes() == b"existing"
