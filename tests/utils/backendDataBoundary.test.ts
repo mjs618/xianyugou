@@ -43,4 +43,18 @@ describe('backend-only page data boundary', () => {
       'runAllCleanup',
     ].forEach((obsoleteName) => expect(source).not.toContain(obsoleteName));
   });
+
+  it('前端生产代码和依赖不再包含业务 IndexedDB', () => {
+    const packageJson = readFileSync(resolve('package.json'), 'utf8');
+    const attachmentService = readFileSync(
+      resolve('src/services/attachmentService.ts'),
+      'utf8',
+    );
+    const setup = readFileSync(resolve('tests/setup.ts'), 'utf8');
+
+    expect(packageJson).not.toContain('"dexie"');
+    expect(packageJson).not.toContain('"fake-indexeddb"');
+    expect(attachmentService).not.toContain("from '@/db'");
+    expect(setup).not.toContain('fake-indexeddb');
+  });
 });
