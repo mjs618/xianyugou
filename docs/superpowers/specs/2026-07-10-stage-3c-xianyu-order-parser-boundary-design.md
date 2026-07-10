@@ -50,7 +50,7 @@
 - `order_service.py` 可以依赖解析器；解析器不得反向依赖服务。
 - 解析器不引入 dataclass、DTO 或配置对象，继续接收原始 `dict`，避免改变现有数据流。
 - 原 `order_service.py` 的公开入口 `fetch_orders`、`upsert_order_mirror`、`list_order_mirrors`、`sync_orders_for_account` 与 `SyncAlreadyRunningError` 保持原路径和签名。
-- 原下划线解析函数属于内部实现，不承诺兼容导出；仓库内无调用方依赖这些私有名称。
+- 原下划线解析函数属于内部实现，不承诺兼容导出；生产代码无调用方依赖这些私有名称，原服务测试中的解析断言迁移到新解析器公共接口。
 
 ## 行为兼容
 
@@ -63,7 +63,7 @@
 
 ## 测试策略
 
-新增 `test_xianyu_order_parser.py`：
+新增 `test_xianyu_order_parser.py`，并把 `test_order_service.py` 中直接调用原私有解析函数的断言迁移到新解析器：
 
 1. 在模块不存在时先以断言失败建立 RED 基线。
 2. 覆盖嵌套订单号、价格、买家、商品、状态和时间解析。

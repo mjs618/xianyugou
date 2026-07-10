@@ -6,7 +6,7 @@ from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from app.services.xianyu import order_service
+from app.services.xianyu import order_parser, order_service
 
 
 def make_order(
@@ -32,37 +32,37 @@ class OrderParsingTests(unittest.TestCase):
         orders = [make_order(1001)]
 
         self.assertEqual(
-            order_service._parse_orders({"module": {"items": orders}}),
+            order_parser.parse_orders({"module": {"items": orders}}),
             orders,
         )
 
     def test_extractors_support_current_nested_fields(self):
         order = make_order(1001)
 
-        self.assertEqual(order_service._extract_order_no(order), "1001")
-        self.assertEqual(order_service._extract_price(order), 88.0)
-        self.assertEqual(order_service._extract_buyer_nick(order), "测试买家")
-        self.assertEqual(order_service._extract_product_name(order), "测试商品")
+        self.assertEqual(order_parser.extract_order_no(order), "1001")
+        self.assertEqual(order_parser.extract_price(order), 88.0)
+        self.assertEqual(order_parser.extract_buyer_nick(order), "测试买家")
+        self.assertEqual(order_parser.extract_product_name(order), "测试商品")
         self.assertEqual(
-            order_service._parse_trade_time(order),
+            order_parser.parse_trade_time(order),
             datetime(2026, 7, 1, 12, 34, 56),
         )
 
     def test_platform_order_status_maps_to_projection_status(self):
         self.assertEqual(
-            order_service._project_transaction_status(make_order(1001)),
+            order_parser.project_transaction_status(make_order(1001)),
             "completed",
         )
         self.assertEqual(
-            order_service._project_transaction_status(make_order(1002, status="待发货")),
+            order_parser.project_transaction_status(make_order(1002, status="待发货")),
             "pending",
         )
         self.assertEqual(
-            order_service._project_transaction_status(make_order(1003, status="退款处理中")),
+            order_parser.project_transaction_status(make_order(1003, status="退款处理中")),
             "aftersales",
         )
         self.assertIsNone(
-            order_service._project_transaction_status(
+            order_parser.project_transaction_status(
                 make_order(1004, status="交易关闭"),
             )
         )

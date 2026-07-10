@@ -15,6 +15,7 @@
 - Create `server/backend/app/services/xianyu/order_parser.py`: standard-library-only pure parser functions and platform status sets.
 - Modify `server/backend/app/services/xianyu/order_service.py`: consume parser functions and remove duplicate parsing definitions.
 - Create `server/backend/test_xianyu_order_parser.py`: parser behavior, ownership, and dependency-boundary tests.
+- Modify `server/backend/test_order_service.py`: point existing parser assertions at the new parser boundary.
 
 ### Task 1: Establish the parser contract with failing tests
 
@@ -149,6 +150,7 @@ git commit -m "test: define xianyu order parser boundary"
 **Files:**
 - Create: `server/backend/app/services/xianyu/order_parser.py`
 - Modify: `server/backend/app/services/xianyu/order_service.py`
+- Modify: `server/backend/test_order_service.py`
 - Test: `server/backend/test_xianyu_order_parser.py`
 - Test: `server/backend/test_xianyu_order_mirror.py`
 - Test: `server/backend/test_xianyu_order_projection.py`
@@ -341,15 +343,19 @@ _parse_trade_time(order) -> parse_trade_time(order, fallback=now_utc())
 
 Keep `_apply_order_projection_to_transaction` in the service and make its completed branch call `extract_shipped_time(order)`. Do not change any surrounding control flow.
 
-- [ ] **Step 3: Run parser and order tests and verify GREEN**
+- [ ] **Step 3: Migrate existing parser assertions to the new owner**
+
+In `test_order_service.py`, import `order_parser` beside `order_service` and replace calls to `_parse_orders`, `_extract_order_no`, `_extract_price`, `_extract_buyer_nick`, `_extract_product_name`, `_parse_trade_time`, and `_project_transaction_status` with their public `order_parser` equivalents. Keep sync orchestration tests on `order_service`.
+
+- [ ] **Step 4: Run parser and order tests and verify GREEN**
 
 ```powershell
-python -m pytest server/backend/test_xianyu_order_parser.py server/backend/test_xianyu_order_mirror.py server/backend/test_xianyu_order_projection.py server/backend/test_xianyu_order_routes.py -q
+python -m pytest server/backend/test_xianyu_order_parser.py server/backend/test_order_service.py server/backend/test_xianyu_order_mirror.py server/backend/test_xianyu_order_projection.py server/backend/test_xianyu_order_routes.py -q
 ```
 
 Expected: all selected tests pass.
 
-- [ ] **Step 4: Run source hygiene checks**
+- [ ] **Step 5: Run source hygiene checks**
 
 ```powershell
 rg -n '^def (_extract_|_parse_orders|_parse_trade_time|_project_transaction_status)' server/backend/app/services/xianyu/order_service.py
@@ -358,10 +364,10 @@ git diff --check
 
 Expected: `rg` finds no duplicate parser definitions; `git diff --check` exits successfully.
 
-- [ ] **Step 5: Commit the extraction**
+- [ ] **Step 6: Commit the extraction**
 
 ```powershell
-git add -- server/backend/app/services/xianyu/order_parser.py server/backend/app/services/xianyu/order_service.py
+git add -- server/backend/app/services/xianyu/order_parser.py server/backend/app/services/xianyu/order_service.py server/backend/test_order_service.py
 git commit -m "refactor: isolate xianyu order parsing"
 ```
 
