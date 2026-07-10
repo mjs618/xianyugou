@@ -282,6 +282,19 @@ class MigrateImportResponse(BaseModel):
     message: str = "导入成功"
 
 
+# ==================== 附件 ====================
+class AttachmentOut(ORMBase):
+    id: int
+    name: str
+    type: str
+    size: int
+    created_at: datetime
+
+
+class AttachmentBatchRequest(BaseModel):
+    ids: List[int] = Field(default_factory=list, max_length=50)
+
+
 # ==================== 闲鱼账号（第二阶段） ====================
 class XianyuAccountCreate(BaseModel):
     nickname: str

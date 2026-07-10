@@ -23,6 +23,7 @@ from .routers import (
     customer_tag,
     trash,
     mail_record,
+    attachments,
 )
 
 
@@ -79,6 +80,7 @@ app.include_router(notification.router)
 app.include_router(customer_tag.router)
 app.include_router(trash.router)
 app.include_router(mail_record.router)
+app.include_router(attachments.router)
 
 
 if __name__ == "__main__":
