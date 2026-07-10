@@ -1,7 +1,7 @@
 import type { Transaction, Customer, FinanceOverview, ProductProfitStat, CustomerValueStat, RebateRecord } from '@/types';
 import type { WorkSheet } from 'xlsx';
 import { formatDate } from './date';
-import { isEncrypted, encryptWithPassword, decryptWithPassword, isEncryptedBackup } from './crypto';
+import { encryptWithPassword, decryptWithPassword, isEncryptedBackup } from './backupCrypto';
 import { apiClient } from '@/services/apiClient';
 
 // 导出 JSON 备份（数据层已迁移后端，从后端 /api/migrate/export 获取全量明文备份）

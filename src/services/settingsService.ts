@@ -2,7 +2,7 @@
 //
 // 切换说明（数据层迁移第一批）：
 // - getSettings/updateSettings 改为调用后端 /api/settings
-// - 加解密移到后端：前端不再 encryptField/decryptField，API 返回明文 smtp_pass
+// - 敏感字段加解密移到后端，API 返回明文 smtp_pass
 // - 客户统计与返利金额由后端在 updateSettings 时自动重算
 import { apiClient } from './apiClient';
 import { DEFAULT_SETTINGS, type Settings } from '@/types';

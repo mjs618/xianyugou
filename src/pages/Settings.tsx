@@ -19,7 +19,7 @@ import {
   syncItems as syncXianyuItems,
 } from '@/services/xianyuService';
 import type { XianyuItemTemplateProjectionFilter } from '@/services/xianyuService';
-import { isEncryptedBackup } from '@/utils/crypto';
+import { isEncryptedBackup } from '@/utils/backupCrypto';
 import { getWarrantyDaysLabel } from '@/utils/warranty';
 import {
   listTrashedCustomers,
