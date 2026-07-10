@@ -90,7 +90,7 @@ Create `app/migrations/alembic.ini`:
 ```ini
 [alembic]
 script_location = %(here)s
-prepend_sys_path = ../../..
+prepend_sys_path = %(here)s/../..
 path_separator = os
 sqlalchemy.url = sqlite:///placeholder.db
 
