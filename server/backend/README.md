@@ -128,18 +128,18 @@ python test_selfcheck.py
 
 ## 数据库备份与校验
 
-结构迁移或镜像升级前，先进入 `server/backend` 目录，创建带校验清单的 SQLite 备份：
+结构迁移或镜像升级前，在项目根目录执行以下命令，直接备份 Docker volume 中的运行数据库：
 
 ```powershell
-python -m app.maintenance.database_backup create --output backups/xianyu-YYYYMMDD-HHMMSS.db
+docker compose exec backend python -m app.maintenance.database_backup create --output /app/backups/xianyu-YYYYMMDD-HHMMSS.db
 ```
 
-该命令使用 SQLite 在线备份 API，不覆盖已有文件，并生成同名 `.manifest.json`。清单只包含校验和、表名和记录数，不包含业务字段值或密钥。
+Compose 自动加载 `docker-compose.override.yml`，将 `/app/backups` 映射到宿主机 `server/backend/backups`。该命令使用 SQLite 在线备份 API，不覆盖已有文件，并生成同名 `.manifest.json`。清单只包含校验和、表名和记录数，不包含业务字段值或密钥。
 
 恢复前先校验备份：
 
 ```powershell
-python -m app.maintenance.database_backup verify --database backups/xianyu-YYYYMMDD-HHMMSS.db --manifest backups/xianyu-YYYYMMDD-HHMMSS.manifest.json
+docker compose exec backend python -m app.maintenance.database_backup verify --database /app/backups/xianyu-YYYYMMDD-HHMMSS.db --manifest /app/backups/xianyu-YYYYMMDD-HHMMSS.manifest.json
 ```
 
 数据库与 `data/secret.key` 必须配套保存。工具不会复制或打印密钥。实际恢复涉及覆盖运行数据库，必须先停止后端并由操作者明确执行；本工具只负责创建和校验备份。

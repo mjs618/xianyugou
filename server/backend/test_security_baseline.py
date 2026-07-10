@@ -78,6 +78,14 @@ def test_compose_ports_bind_to_loopback_by_default():
     assert "${BACKEND_BIND_HOST:-127.0.0.1}:${BACKEND_PORT:-18001}:8000" in compose
 
 
+def test_backend_backup_output_is_mounted_outside_database_volume():
+    compose_override = (REPO_ROOT / "docker-compose.override.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "./server/backend/backups:/app/backups" in compose_override
+
+
 def test_frontend_build_consumes_configured_local_service_urls():
     compose = (REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
