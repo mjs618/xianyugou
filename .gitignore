@@ -53,3 +53,4 @@ desktop.ini
 *.sqlite3
 *.db
 /server/backend/data/
+/server/backend/backups/

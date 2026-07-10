@@ -427,13 +427,13 @@ Append this section to `server/backend/README.md`:
 ````markdown
 ## 数据库备份与校验
 
-结构迁移或镜像升级前，先在项目根目录创建带校验清单的 SQLite 备份：
+结构迁移或镜像升级前，先进入 `server/backend` 目录，创建带校验清单的 SQLite 备份：
 
 ```powershell
 python -m app.maintenance.database_backup create --output backups/xianyu-YYYYMMDD-HHMMSS.db
 ```
 
-该命令必须在 `server/backend` 目录运行。它使用 SQLite 在线备份 API，不覆盖已有文件，并生成同名 `.manifest.json`，其中只包含校验和、表名和记录数，不包含业务字段值或密钥。
+该命令使用 SQLite 在线备份 API，不覆盖已有文件，并生成同名 `.manifest.json`，其中只包含校验和、表名和记录数，不包含业务字段值或密钥。
 
 恢复前先校验备份：
 
