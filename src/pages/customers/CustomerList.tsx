@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { listCustomers, toggleBlacklist, softDeleteCustomer, setCustomerTags, updateCustomer, isChurnRisk } from '@/services/customerService';
 import { listAfterSales } from '@/services/afterSalesService';
 import { listTransactions } from '@/services/transactionService';
-import { db } from '@/db';
+import { getReferrerRankings } from '@/services/referralService';
 import { exportCustomersCSV, downloadFile } from '@/utils/export';
 import { formatMoney } from '@/utils/format';
 import { formatDate } from '@/utils/date';
@@ -40,10 +40,10 @@ export default function CustomerList() {
     setLoading(true);
     setLoadError(false);
     try {
-      const [list, aftersales, links, trades] = await Promise.all([
+      const [list, aftersales, rankings, trades] = await Promise.all([
         listCustomers(),
         listAfterSales(),
-        db.customerLinks.toArray(),
+        getReferrerRankings(),
         listTransactions(),
       ]);
       list.sort((a, b) => (b.first_trade_at ? new Date(b.first_trade_at).getTime() : 0) - (a.first_trade_at ? new Date(a.first_trade_at).getTime() : 0));
@@ -60,13 +60,19 @@ export default function CustomerList() {
       });
       setLastTradeMap(lastMap);
       // 通过售后工单关联的交易，反查客户 ID
-      const txIds = new Set(aftersales.map((a) => a.transaction_id));
-      const txs = await db.transactions.bulkGet(Array.from(txIds));
+      const transactionById = new Map(
+        trades
+          .filter((trade) => trade.id !== undefined)
+          .map((trade) => [trade.id!, trade]),
+      );
       const asCustomerIds = new Set<number>();
-      txs.forEach((t) => { if (t) asCustomerIds.add(t.customer_id); });
+      aftersales.forEach((ticket) => {
+        const transaction = transactionById.get(ticket.transaction_id);
+        if (transaction) asCustomerIds.add(transaction.customer_id);
+      });
       setHasAftersalesIds(asCustomerIds);
       // 介绍人 ID 集合
-      setReferrerIds(new Set(links.map((l) => l.referrer_id)));
+      setReferrerIds(new Set(rankings.map((ranking) => ranking.referrerId)));
     } catch (err) {
       console.error('客户数据加载失败:', err);
       setLoadError(true);

@@ -6,7 +6,7 @@ import ReactFlow, { Background, Controls, type Node, type Edge, Handle, Position
 import 'reactflow/dist/style.css';
 import { getCustomer, updateCustomer, setCustomerTags } from '@/services/customerService';
 import { listByCustomer } from '@/services/transactionService';
-import { db } from '@/db';
+import { listAfterSales } from '@/services/afterSalesService';
 import { getReferralTree, getReferrerRankings } from '@/services/referralService';
 import { listByReferrer } from '@/services/rebateService';
 import WarrantyTag from '@/components/WarrantyTag';
@@ -63,14 +63,14 @@ export default function CustomerDetail() {
       setEditContact(c.contact_info || '');
       // 先查交易列表，再用交易 ID 批量查售后（避免重复查询与 N+1）
       const t = await listByCustomer(c.id!);
-      const txIds = t.map((tr) => tr.id!);
-      const [as, tree, rb] = await Promise.all([
-        txIds.length > 0 ? db.afterSales.where('transaction_id').anyOf(txIds).toArray() : Promise.resolve([]),
+      const [allAfterSales, tree, rb] = await Promise.all([
+        listAfterSales(),
         getReferralTree(c.id!),
         listByReferrer(c.id!),
       ]);
+      const transactionIds = new Set(t.map((transaction) => transaction.id));
       setTrades(t.reverse());
-      setAfterSales(as);
+      setAfterSales(allAfterSales.filter((ticket) => transactionIds.has(ticket.transaction_id)));
       setReferralTree(tree);
       setRebates(rb);
     } catch (err) {

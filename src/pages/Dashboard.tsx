@@ -14,7 +14,6 @@ import { getReferrerRankings } from '@/services/referralService';
 import { getUrgentTransactions } from '@/services/warrantyService';
 import { listTransactions } from '@/services/transactionService';
 import { listCustomers, getChurnRiskStats } from '@/services/customerService';
-import { db } from '@/db';
 import { formatMoney, formatPercent } from '@/utils/format';
 import { formatDate } from '@/utils/date';
 import { getMonthRange, getPrevMonthRange } from '@/utils/date';

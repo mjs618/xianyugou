@@ -3,7 +3,7 @@ import { Card, Row, Col, Empty, Spin, Button, Tag, Space, Segmented, message, Mo
 import { ExportOutlined, ClockCircleOutlined, PlusOutlined, ToolOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { getAllWarrantyTransactions, getUrgentTransactions, getExpiredTransactions, extendWarranty, endWarrantyEarly } from '@/services/warrantyService';
-import { db } from '@/db';
+import { listCustomers } from '@/services/customerService';
 import { createAfterSales } from '@/services/afterSalesService';
 import { exportTransactionsCSV, downloadFile } from '@/utils/export';
 import { formatMoney } from '@/utils/format';
@@ -35,12 +35,18 @@ export default function WarrantyBoard() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const list = await getAllWarrantyTransactions();
+      const [list, customerList] = await Promise.all([
+        getAllWarrantyTransactions(),
+        listCustomers(),
+      ]);
       // 批量加载关联客户（一次查询，避免 N+1）
-      const ids = Array.from(new Set(list.map((t) => t.customer_id)));
-      const cs = await db.customers.bulkGet(ids);
+      const ids = new Set(list.map((t) => t.customer_id));
       const map = new Map<number, Customer>();
-      cs.forEach((c) => { if (c) map.set(c.id!, c); });
+      customerList.forEach((customer) => {
+        if (customer.id !== undefined && ids.has(customer.id)) {
+          map.set(customer.id, customer);
+        }
+      });
       setCustomers(map);
       list.sort((a, b) => new Date(a.warranty_end!).getTime() - new Date(b.warranty_end!).getTime());
       setAll(list);
