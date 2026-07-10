@@ -24,6 +24,10 @@ export function getBackendUrl(): string {
   return safeStorage()?.getItem(BACKEND_KEY)?.trim() || DEFAULT_BACKEND;
 }
 
+export function getApiUrl(path: string): string {
+  return `${getBackendUrl()}${path}`;
+}
+
 export function setBackendUrl(url: string): void {
   const trimmed = url.trim().replace(/\/+$/, '');
   safeStorage()?.setItem(BACKEND_KEY, trimmed || DEFAULT_BACKEND);
@@ -82,8 +86,12 @@ async function request<T>(
 
   const init: RequestInit = { method };
   if (body !== undefined) {
-    init.headers = { 'Content-Type': 'application/json' };
-    init.body = JSON.stringify(body);
+    if (body instanceof FormData) {
+      init.body = body;
+    } else {
+      init.headers = { 'Content-Type': 'application/json' };
+      init.body = JSON.stringify(body);
+    }
   }
 
   let res: Response;
@@ -110,6 +118,8 @@ export const apiClient = {
     request<T>(path, { method: 'GET', params }),
   post: <T>(path: string, body?: unknown, params?: Record<string, string | number | boolean | undefined>) =>
     request<T>(path, { method: 'POST', body, params }),
+  postForm: <T>(path: string, body: FormData) =>
+    request<T>(path, { method: 'POST', body }),
   put: <T>(path: string, body?: unknown, params?: Record<string, string | number | boolean | undefined>) =>
     request<T>(path, { method: 'PUT', body, params }),
   patch: <T>(path: string, body?: unknown, params?: Record<string, string | number | boolean | undefined>) =>

@@ -196,11 +196,10 @@ export interface CustomerTagRelation {
 
 // 附件表（存储图片 Blob，供交易/售后工单引用）
 export interface Attachment {
-  id?: number;
+  id: number;
   name: string;
   type: string;
   size: number;
-  blob: Blob;
   created_at: Date;
 }
 

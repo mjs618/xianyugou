@@ -60,6 +60,7 @@ const mocked = vi.hoisted(() => {
       apiClient: {
         get: (path: string, params?: Record<string, unknown>) => execute('get', path, undefined, params),
         post: (path: string, body?: unknown, params?: Record<string, unknown>) => execute('post', path, body, params),
+        postForm: (path: string, body: FormData) => execute('postForm', path, body),
         put: (path: string, body?: unknown, params?: Record<string, unknown>) => execute('put', path, body, params),
         patch: (path: string, body?: unknown, params?: Record<string, unknown>) => execute('patch', path, body, params),
         delete: (path: string) => execute('delete', path),
@@ -76,6 +77,7 @@ const mocked = vi.hoisted(() => {
       },
       checkBackend: () => Promise.resolve(true),
       getBackendUrl: () => 'http://localhost:8000',
+      getApiUrl: (path: string) => `http://localhost:8000${path}`,
       setBackendUrl: () => {},
     };
   }
