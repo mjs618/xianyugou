@@ -406,7 +406,7 @@ Verify HTTP 200 from `/api/health`, `/api/xianyu/accounts`, `/api/xianyu/account
 
 ```powershell
 docker exec xianyugou-backend python -m app.maintenance.database_schema current
-docker exec xianyugou-backend python -m app.maintenance.backup verify /app/backups/xianyu-20260710-pre-alembic.db --manifest /app/backups/xianyu-20260710-pre-alembic.manifest.json
+docker exec xianyugou-backend python -m app.maintenance.database_backup verify --database /app/backups/xianyu-20260710-pre-alembic.db --manifest /app/backups/xianyu-20260710-pre-alembic.manifest.json
 ```
 
 Expected: current and head are both `20260710_02`; backup verification succeeds.
