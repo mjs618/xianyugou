@@ -73,3 +73,14 @@ def test_revision_guard_rejects_unversioned_database(tmp_path):
     with pytest.raises(RuntimeError, match="database revision mismatch"):
         asyncio.run(require_current_schema(async_engine))
     asyncio.run(async_engine.dispose())
+
+
+def test_application_startup_contains_no_implicit_schema_ddl():
+    source = (Path(__file__).parent / "app" / "database.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Base.metadata.create_all" not in source
+    assert "ALTER TABLE" not in source
+    assert "_ensure_sqlite_columns" not in source
+    assert "require_current_schema" in source
