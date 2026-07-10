@@ -52,9 +52,4 @@ describe('settingsService', () => {
     expect(body.recall_days).toBe(60);
     expect(body.warranty_days).toBeUndefined(); // 未指定字段不应传递
   });
-
-  it('migrateEncryptSettings 应为 no-op（加密由后端处理）', async () => {
-    const { migrateEncryptSettings } = await import('@/services/settingsService');
-    await expect(migrateEncryptSettings()).resolves.toBeUndefined();
-  });
 });

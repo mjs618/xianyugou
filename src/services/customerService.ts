@@ -6,7 +6,7 @@
 // - 纯函数保留：evaluateLevelWithSettings / isChurnRisk / isHighValueChurnRisk / getChurnRiskStats
 // - setCustomerTags 委托 customerTagService
 import type { Customer, CustomerLevel, Transaction } from '@/types';
-import { apiClient, ApiException, isApiError } from './apiClient';
+import { apiClient, isApiError } from './apiClient';
 
 // 客户等级自动评定（BR-4）
 export function evaluateLevelWithSettings(
@@ -148,13 +148,6 @@ export async function getRecentCustomers(limit = 5): Promise<Customer[]> {
     .slice()
     .sort((a, b) => b.total_spent - a.total_spent)
     .slice(0, limit);
-}
-
-// ==================== 兼容签名（级联由后端完成）====================
-
-// 设置变更后由后端自动重算，前端不再批量重算。保留空签名兼容历史调用。
-export async function recalcAllCustomersStats(): Promise<number> {
-  return 0;
 }
 
 // 设置客户标签（委托 customerTagService）

@@ -23,4 +23,24 @@ describe('backend-only page data boundary', () => {
     expect(source).not.toContain("key: 'migrate'");
     expect(source).not.toContain('Web Crypto API');
   });
+
+  it('启动链和服务层不保留已迁移到后端的空操作', () => {
+    const files = [
+      'src/main.tsx',
+      'src/services/customerService.ts',
+      'src/services/mailRecordService.ts',
+      'src/services/referralService.ts',
+      'src/services/settingsService.ts',
+      'src/services/trashService.ts',
+    ];
+    const source = files.map((file) => readFileSync(resolve(file), 'utf8')).join('\n');
+
+    [
+      'migrateEncryptMailRecords',
+      'migrateEncryptSettings',
+      'createReferralAndRebate',
+      'recalcAllCustomersStats',
+      'runAllCleanup',
+    ].forEach((obsoleteName) => expect(source).not.toContain(obsoleteName));
+  });
 });

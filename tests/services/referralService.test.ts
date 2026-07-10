@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { mockApiFactory, resetMockApi, setMockResponse, getMockCalls } from '../mockApiClient';
 
 vi.mock('@/services/apiClient', () => mockApiFactory());
-import { getReferralTree, getReferrerRankings, wouldCreateCycle, calcReferralLevel, getIntroducedBy, createReferralAndRebate } from '@/services/referralService';
+import { getReferralTree, getReferrerRankings, wouldCreateCycle, calcReferralLevel, getIntroducedBy } from '@/services/referralService';
 
 describe('referralService', () => {
   beforeEach(() => {
@@ -45,11 +45,5 @@ describe('referralService', () => {
   it('getIntroducedBy 应返回被介绍人 ID 数组', async () => {
     setMockResponse('get', '/api/referral/introduced-by/1', { ids: [2, 3, 4] });
     expect(await getIntroducedBy(1)).toEqual([2, 3, 4]);
-  });
-
-  it('createReferralAndRebate 应为 no-op（后端 create_transaction 内联处理）', async () => {
-    await expect(createReferralAndRebate({
-      referrerId: 1, buyerId: 2, transactionId: 1, profit: 100, salePrice: 200,
-    })).resolves.toBeUndefined();
   });
 });
