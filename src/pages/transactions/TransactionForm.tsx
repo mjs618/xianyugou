@@ -8,10 +8,9 @@ import ProductTemplateSelect from '@/components/ProductTemplateSelect';
 import AttachmentUpload from '@/components/AttachmentUpload';
 import { createCustomer, findByNickname, getCustomer } from '@/services/customerService';
 import { createTransaction, updateTransaction, getTransaction, calcProfit } from '@/services/transactionService';
-import { getSettings } from '@/services/settingsService';
 import { useAppStore } from '@/store/useAppStore';
 import { formatMoney } from '@/utils/format';
-import { calcWarrantyEnd } from '@/utils/warranty';
+import { calcWarrantyEnd, getEnabledWarrantyDays, getWarrantyFormDefaults } from '@/utils/warranty';
 import type { Customer, SourceType, TransactionStatus, TransactionInput } from '@/types';
 
 const { TextArea } = Input;
@@ -30,9 +29,12 @@ export default function TransactionForm() {
   const [newNickname, setNewNickname] = useState('');
   const [salePrice, setSalePrice] = useState(0);
   const [costPrice, setCostPrice] = useState(0);
-  const [warrantyDays, setWarrantyDays] = useState(settings.warranty_days);
+  const initialWarranty = getWarrantyFormDefaults(settings.warranty_days);
+  const [warrantyDays, setWarrantyDays] = useState(initialWarranty.warrantyDays);
+  const [hasWarranty, setHasWarranty] = useState(initialWarranty.hasWarranty);
   const [sourceType, setSourceType] = useState<SourceType>('direct');
   const [tradeAt, setTradeAt] = useState<dayjs.Dayjs>(dayjs());
+  const [shippedAt, setShippedAt] = useState<dayjs.Dayjs>(dayjs());
   const [status, setStatus] = useState<TransactionStatus>('completed');
 
   useEffect(() => {
@@ -64,8 +66,10 @@ export default function TransactionForm() {
     setSalePrice(t.sale_price);
     setCostPrice(t.cost_price);
     setWarrantyDays(t.warranty_days);
+    setHasWarranty(t.warranty_days > 0);
     setSourceType(t.source_type);
     setTradeAt(dayjs(t.trade_at));
+    setShippedAt(t.shipped_at ? dayjs(t.shipped_at) : dayjs(t.trade_at));
     setStatus(t.status);
     form.setFieldsValue({
       customer_id: t.customer_id,
@@ -75,17 +79,22 @@ export default function TransactionForm() {
       sale_price: t.sale_price,
       cost_price: t.cost_price,
       warranty_days: t.warranty_days,
+      has_warranty: t.warranty_days > 0,
       source_type: t.source_type,
       source_customer_id: t.source_customer_id,
       notes: t.notes,
       status: t.status,
       trade_at: dayjs(t.trade_at),
+      shipped_at: t.shipped_at ? dayjs(t.shipped_at) : dayjs(t.trade_at),
       attachments: t.attachments || [],
     });
   };
 
   const profit = calcProfit(salePrice, costPrice);
-  const warrantyEnd = status === 'completed' ? calcWarrantyEnd(tradeAt.toDate(), warrantyDays) : undefined;
+  const warrantyStart = shippedAt || tradeAt;
+  const warrantyEnd = status === 'completed' && hasWarranty && warrantyDays > 0
+    ? calcWarrantyEnd(warrantyStart.toDate(), warrantyDays)
+    : undefined;
   const expectedRebate = sourceType === 'introduced' ? Math.round((settings.rebate_base === 'sale' ? salePrice : profit) * settings.rebate_rate * 100) / 100 : 0;
 
   // 黑名单警示
@@ -104,12 +113,26 @@ export default function TransactionForm() {
       setCostPrice(tpl.default_cost);
       if (tpl.default_sale_price) setSalePrice(tpl.default_sale_price);
       setWarrantyDays(tpl.warranty_days);
+      setHasWarranty(tpl.warranty_days > 0);
       form.setFieldsValue({
         product_name: tpl.name,
         cost_price: tpl.default_cost,
         sale_price: tpl.default_sale_price,
         warranty_days: tpl.warranty_days,
+        has_warranty: tpl.warranty_days > 0,
       });
+    }
+  };
+
+  const handleWarrantyToggle = (checked: boolean) => {
+    setHasWarranty(checked);
+    if (checked) {
+      const nextDays = getEnabledWarrantyDays(warrantyDays, settings.warranty_days);
+      setWarrantyDays(nextDays);
+      form.setFieldValue('warranty_days', nextDays);
+    } else {
+      setWarrantyDays(0);
+      form.setFieldValue('warranty_days', 0);
     }
   };
 
@@ -163,8 +186,11 @@ export default function TransactionForm() {
         sale_price: Number(values.sale_price),
         cost_price: Number(values.cost_price),
         trade_at: (values.trade_at || tradeAt).toDate(),
+        shipped_at: (values.status || status) === 'completed'
+          ? (values.shipped_at || shippedAt || values.trade_at || tradeAt).toDate()
+          : undefined,
         status: values.status || status,
-        warranty_days: Number(values.warranty_days || warrantyDays),
+        warranty_days: values.has_warranty === false ? 0 : Number(values.warranty_days ?? warrantyDays),
         source_type: values.source_type || sourceType,
         source_customer_id: values.source_customer_id,
         notes: values.notes,
@@ -233,8 +259,11 @@ export default function TransactionForm() {
         sale_price: Number(values.sale_price),
         cost_price: Number(values.cost_price),
         trade_at: (values.trade_at || tradeAt).toDate(),
+        shipped_at: (values.status || status) === 'completed'
+          ? (values.shipped_at || shippedAt || values.trade_at || tradeAt).toDate()
+          : undefined,
         status: values.status || status,
-        warranty_days: Number(values.warranty_days || warrantyDays),
+        warranty_days: values.has_warranty === false ? 0 : Number(values.warranty_days ?? warrantyDays),
         source_type: values.source_type || sourceType,
         source_customer_id: values.source_customer_id,
         notes: values.notes,
@@ -253,12 +282,16 @@ export default function TransactionForm() {
         source_customer_id: values.source_customer_id,
         status: 'completed',
         trade_at: dayjs(),
-        warranty_days: settings.warranty_days,
+        shipped_at: dayjs(),
+        has_warranty: initialWarranty.hasWarranty,
+        warranty_days: initialWarranty.warrantyDays,
       });
       setSalePrice(0);
       setCostPrice(0);
-      setWarrantyDays(settings.warranty_days);
+      setWarrantyDays(initialWarranty.warrantyDays);
+      setHasWarranty(initialWarranty.hasWarranty);
       setTradeAt(dayjs());
+      setShippedAt(dayjs());
     } catch (err: any) {
       if (err?.errorFields) return;
       message.error(err?.message || '操作失败');
@@ -287,7 +320,7 @@ export default function TransactionForm() {
         </Space>
       }
     >
-      <Form form={form} layout="vertical" initialValues={{ status: 'completed', source_type: 'direct', warranty_days: settings.warranty_days, trade_at: dayjs() }}>
+      <Form form={form} layout="vertical" initialValues={{ status: 'completed', source_type: 'direct', has_warranty: initialWarranty.hasWarranty, warranty_days: initialWarranty.warrantyDays, trade_at: dayjs(), shipped_at: dayjs() }}>
         <Row gutter={24}>
           <Col xs={24} lg={12}>
             <Card type="inner" title="客户信息" size="small">
@@ -381,6 +414,15 @@ export default function TransactionForm() {
                   </Form.Item>
                 </Col>
               </Row>
+              <Form.Item name="shipped_at" label="发货时间（质保起算）" tooltip="质保从你发货的时间开始计算；待发货订单暂不生成质保到期时间。">
+                <DatePicker
+                  showTime
+                  style={{ width: '100%' }}
+                  disabled={status !== 'completed'}
+                  value={shippedAt}
+                  onChange={(v) => v && setShippedAt(v)}
+                />
+              </Form.Item>
             </Card>
           </Col>
         </Row>
@@ -402,13 +444,24 @@ export default function TransactionForm() {
                 </Form.Item>
               )}
 
-              <Form.Item name="warranty_days" label="质保周期（天）">
-                <InputNumber min={0} max={3650} value={warrantyDays} onChange={(v) => setWarrantyDays(Number(v) || 0)} style={{ width: 120 }} />
+              <Form.Item name="has_warranty" label="订单质保" valuePropName="checked">
+                <Switch checked={hasWarranty} onChange={handleWarrantyToggle} checkedChildren="质保" unCheckedChildren="不质保" />
               </Form.Item>
+
+              {hasWarranty ? (
+                <Form.Item name="warranty_days" label="质保周期（天）">
+                  <InputNumber min={1} max={3650} value={warrantyDays} onChange={(v) => setWarrantyDays(Number(v) || 0)} style={{ width: 120 }} />
+                </Form.Item>
+              ) : (
+                <div style={{ marginBottom: 16, padding: '8px 12px', background: 'var(--color-bg)', borderRadius: 6, fontSize: 13, color: 'var(--color-text-secondary)' }}>
+                  此订单不进入质保看板，也不会生成到期提醒。
+                </div>
+              )}
 
               {warrantyEnd && (
                 <div style={{ marginBottom: 8, fontSize: 13, color: 'var(--color-text-secondary)' }}>
                   质保到期：<span style={{ color: 'var(--color-dark)' }}>{dayjs(warrantyEnd).format('YYYY-MM-DD HH:mm')}</span>
+                  <span style={{ marginLeft: 8 }}>从 {shippedAt.format('YYYY-MM-DD HH:mm')} 发货开始</span>
                 </div>
               )}
 

@@ -9,7 +9,7 @@ from typing import Optional
 from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import NotificationRecord, Customer, Transaction
+from ..models import AfterSales, NotificationRecord, Customer, Transaction
 from ..utils.helpers import now_utc
 from .settings_service import get_settings
 
@@ -172,10 +172,56 @@ async def check_rebate_reminders(db: AsyncSession) -> list[NotificationRecord]:
     return [n]
 
 
+async def check_aftersales_followup_reminders(db: AsyncSession) -> list[NotificationRecord]:
+    """检查售后跟进提醒：待处理超过 24 小时、处理中超过 48 小时。"""
+    now = now_utc()
+    stmt = select(AfterSales).where(
+        AfterSales.deleted_at.is_(None),
+        AfterSales.status.in_(["pending", "processing"]),
+    )
+    tickets = list((await db.execute(stmt)).scalars().all())
+    created: list[NotificationRecord] = []
+    for ticket in tickets:
+        if not ticket.created_at:
+            continue
+        created_at = ticket.created_at.replace(tzinfo=None) if ticket.created_at.tzinfo else ticket.created_at
+        elapsed_hours = int((now - created_at).total_seconds() // 3600)
+        threshold = 24 if ticket.status == "pending" else 48
+        if elapsed_hours <= threshold:
+            continue
+        if await _find_today_notification(db, "aftersales_pending", ticket.id, now):
+            continue
+
+        tx = await db.get(Transaction, ticket.transaction_id)
+        customer = await db.get(Customer, tx.customer_id) if tx else None
+        status_text = "待处理" if ticket.status == "pending" else "处理中"
+        title = "售后跟进提醒"
+        content = (
+            f"{status_text}工单 #{ticket.id} 已超过 {threshold} 小时未完成"
+            f"（{customer.xianyu_nickname if customer else '未知客户'} / {tx.product_name if tx else '未知交易'}），请及时跟进"
+        )
+        n = NotificationRecord(
+            type="aftersales_pending",
+            ref_id=ticket.id,
+            title=title,
+            content=content,
+            status="unread",
+            scheduled_at=now,
+            sent_at=now,
+            created_at=now,
+        )
+        db.add(n)
+        created.append(n)
+    if created:
+        await db.flush()
+    return created
+
+
 async def run_all_reminder_checks(db: AsyncSession) -> list[NotificationRecord]:
     """执行所有提醒检查。返回本次新生成的通知（供前端弹浏览器通知）。"""
     created: list[NotificationRecord] = []
     created.extend(await check_warranty_reminders(db))
+    created.extend(await check_aftersales_followup_reminders(db))
     created.extend(await check_customer_recall_reminders(db))
     created.extend(await check_rebate_reminders(db))
     return created

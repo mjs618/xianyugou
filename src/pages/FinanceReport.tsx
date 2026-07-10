@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Card, Row, Col, DatePicker, Button, Table, Space, Segmented, message, Tag, Popconfirm, Spin, Empty } from 'antd';
-import { ExportOutlined, FileExcelOutlined } from '@ant-design/icons';
+import { Card, Row, Col, DatePicker, Button, Table, Space, Segmented, message, Tag, Popconfirm, Spin, Empty, Modal, Form, Input, InputNumber, Select } from 'antd';
+import { DeleteOutlined, ExportOutlined, FileExcelOutlined, PlusOutlined } from '@ant-design/icons';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell, Legend, BarChart, Bar } from 'recharts';
 import dayjs from 'dayjs';
 import { getFinanceOverviewByRange, getTrend, getProductProfitStats, getCustomerValueStats, getMonthlyComparison } from '@/services/financeService';
+import { createExpense, deleteExpense, listExpenses } from '@/services/expenseService';
 import { listTransactions, listByDateRange } from '@/services/transactionService';
 import { getPendingTotal, getTotalPaid, listRebates, markPaid, cancelRebate, batchPay } from '@/services/rebateService';
 import { listAfterSales } from '@/services/afterSalesService';
@@ -13,7 +14,7 @@ import { formatDate } from '@/utils/date';
 import StatCard from '@/components/StatCard';
 import { IncomeIcon, ProfitIcon, TradeIcon, RebateIcon } from '@/components/RefinedIcons';
 import { useChartColors } from '@/hooks/useChartColors';
-import type { FinanceOverview, TrendPoint, ProductProfitStat, CustomerValueStat, MonthlyComparisonPoint, RebateRecord, AfterSales } from '@/types';
+import type { FinanceOverview, TrendPoint, ProductProfitStat, CustomerValueStat, MonthlyComparisonPoint, RebateRecord, AfterSales, OperatingExpense } from '@/types';
 
 const { RangePicker } = DatePicker;
 
@@ -28,12 +29,16 @@ export default function FinanceReport() {
   const [customers, setCustomers] = useState<CustomerValueStat[]>([]);
   const [rebates, setRebates] = useState<RebateRecord[]>([]);
   const [afterSalesList, setAfterSalesList] = useState<AfterSales[]>([]);
+  const [expenses, setExpenses] = useState<OperatingExpense[]>([]);
   const [pendingTotal, setPendingTotal] = useState(0);
   const [paidTotal, setPaidTotal] = useState(0);
   const [rangeType, setRangeType] = useState<RangeType>('month');
   const [customRange, setCustomRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
   const [selectedRebateKeys, setSelectedRebateKeys] = useState<number[]>([]);
   const [batchLoading, setBatchLoading] = useState(false);
+  const [expenseModalOpen, setExpenseModalOpen] = useState(false);
+  const [expenseSubmitting, setExpenseSubmitting] = useState(false);
+  const [expenseForm] = Form.useForm();
   // 深色模式下图表颜色适配（SVG 属性不支持 CSS var()，需通过 JS 动态绑定字符串值）
   const chartColors = useChartColors();
 
@@ -67,7 +72,7 @@ export default function FinanceReport() {
       const range = getDateRange();
       // 概览跟随所选时间范围；自定义未选择时回退到本月
       const [rangeStart, rangeEnd] = range || [dayjs().startOf('month').toDate(), dayjs().endOf('month').toDate()];
-      const [ov, tr, mc, ps, cs, rb, pt, pd, as] = await Promise.all([
+      const [ov, tr, mc, ps, cs, rb, pt, pd, as, ex] = await Promise.all([
         getFinanceOverviewByRange(rangeStart, rangeEnd),
         getTrend(30),
         getMonthlyComparison(6),
@@ -77,6 +82,7 @@ export default function FinanceReport() {
         getPendingTotal(),
         getTotalPaid(),
         listAfterSales(),
+        listExpenses(rangeStart, rangeEnd),
       ]);
       setOverview(ov);
       setTrend(tr);
@@ -87,6 +93,7 @@ export default function FinanceReport() {
       setPendingTotal(pt);
       setPaidTotal(pd);
       setAfterSalesList(as);
+      setExpenses(ex);
     } catch (err) {
       console.error('加载财务报表失败:', err);
       message.error(err instanceof Error ? err.message : '加载财务报表失败，请重试');
@@ -155,6 +162,38 @@ export default function FinanceReport() {
     }
   };
 
+  const openExpenseModal = () => {
+    expenseForm.setFieldsValue({
+      category: '擦亮',
+      amount: undefined,
+      occurred_at: dayjs(),
+      notes: '',
+    });
+    setExpenseModalOpen(true);
+  };
+
+  const handleCreateExpense = async () => {
+    setExpenseSubmitting(true);
+    try {
+      const values = await expenseForm.validateFields();
+      await createExpense({
+        category: values.category,
+        amount: values.amount,
+        occurred_at: values.occurred_at.toDate(),
+        notes: values.notes,
+      });
+      message.success('支出已记录');
+      setExpenseModalOpen(false);
+      loadData();
+    } catch (err) {
+      if (err instanceof Error) {
+        message.error(err.message);
+      }
+    } finally {
+      setExpenseSubmitting(false);
+    }
+  };
+
   // 售后解决方式分布（基于售后工单的 solution_type）
   const solutionData = [
     { name: '远程协助', value: afterSalesList.filter((a) => a.solution_type === 'remote').length },
@@ -163,6 +202,7 @@ export default function FinanceReport() {
     { name: '其他', value: afterSalesList.filter((a) => a.solution_type === 'other').length },
   ].filter((d) => d.value > 0);
   const emptyText = <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />;
+  const operatingExpenseTotal = overview?.operatingExpense ?? expenses.reduce((sum, item) => sum + item.amount, 0);
 
   if (loading) {
     return <div style={{ textAlign: 'center', padding: 80 }}><Spin size="large" /></div>;
@@ -189,6 +229,7 @@ export default function FinanceReport() {
             {rangeType === 'custom' && (
               <RangePicker value={customRange} onChange={(v) => setCustomRange(v as any)} />
             )}
+            <Button icon={<PlusOutlined />} onClick={openExpenseModal}>记擦亮费</Button>
             <Button type="primary" icon={<FileExcelOutlined />} onClick={handleExportExcel}>导出 Excel</Button>
             <Button icon={<ExportOutlined />} onClick={handleExport}>导出明细</Button>
           </Space>
@@ -207,7 +248,46 @@ export default function FinanceReport() {
           <Col xs={12} sm={6}>
             <StatCard title="利润率" value={(overview?.profitRate || 0) * 100} precision={1} prefix="" suffix="%" icon={<ProfitIcon />} color="var(--color-purple)" />
           </Col>
+          <Col xs={12} sm={6}>
+            <StatCard title="运营支出" value={operatingExpenseTotal} prefix="¥" icon={<TradeIcon />} color="var(--color-warning)" />
+          </Col>
         </Row>
+      </Card>
+
+      <Card
+        title="运营支出明细"
+        style={{ marginTop: 16 }}
+        extra={<Button size="small" icon={<PlusOutlined />} onClick={openExpenseModal}>新增支出</Button>}
+      >
+        <Table
+          rowKey="id"
+          dataSource={expenses}
+          size="small"
+          pagination={{ pageSize: 8 }}
+          locale={{ emptyText }}
+          columns={[
+            { title: '类型', dataIndex: 'category', width: 120, render: (v: string) => <Tag color={v === '擦亮' ? 'orange' : 'default'}>{v}</Tag> },
+            { title: '金额', dataIndex: 'amount', width: 120, render: (v: number) => <span style={{ color: 'var(--color-danger)', fontWeight: 600 }}>{formatMoney(v)}</span>, align: 'right' as const },
+            { title: '发生时间', dataIndex: 'occurred_at', width: 160, render: (v: Date) => formatDate(v) },
+            { title: '备注', dataIndex: 'notes', ellipsis: true, render: (v?: string) => v || '-' },
+            {
+              title: '操作',
+              width: 80,
+              render: (_: unknown, r: OperatingExpense) => (
+                <Popconfirm
+                  title="确认删除这笔支出？"
+                  onConfirm={async () => {
+                    await deleteExpense(r.id);
+                    message.success('已删除');
+                    loadData();
+                  }}
+                >
+                  <Button size="small" danger icon={<DeleteOutlined />} />
+                </Popconfirm>
+              ),
+            },
+          ]}
+        />
       </Card>
 
       <Card title="近30天利润趋势" style={{ marginTop: 16 }}>
@@ -408,6 +488,38 @@ export default function FinanceReport() {
           </Card>
         </Col>
       </Row>
+
+      <Modal
+        title="记录运营支出"
+        open={expenseModalOpen}
+        onOk={handleCreateExpense}
+        onCancel={() => setExpenseModalOpen(false)}
+        confirmLoading={expenseSubmitting}
+        okText="保存"
+        cancelText="取消"
+      >
+        <Form form={expenseForm} layout="vertical">
+          <Form.Item name="category" label="类型" rules={[{ required: true, message: '请选择类型' }]}>
+            <Select
+              options={[
+                { value: '擦亮', label: '擦亮' },
+                { value: '推广', label: '推广' },
+                { value: '平台服务', label: '平台服务' },
+                { value: '其他', label: '其他' },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item name="amount" label="金额" rules={[{ required: true, message: '请输入金额' }]}>
+            <InputNumber min={0.01} precision={2} style={{ width: '100%' }} prefix="¥" />
+          </Form.Item>
+          <Form.Item name="occurred_at" label="发生时间" rules={[{ required: true, message: '请选择发生时间' }]}>
+            <DatePicker showTime style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="notes" label="备注">
+            <Input.TextArea rows={3} placeholder="可填写对应商品、账号或操作说明" />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 }

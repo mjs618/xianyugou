@@ -38,11 +38,33 @@ describe('productTemplateService', () => {
     expect((getMockCalls('post', '/api/product-templates')[0].body as any).warranty_days).toBe(180);
   });
 
+  it('createTemplate 应允许 warranty_days 为 0 表示不质保', async () => {
+    setMockResponse('post', '/api/product-templates', TPL({ warranty_days: 0 }));
+    await createTemplate({ name: '不质保商品', default_cost: 100, warranty_days: 0 });
+    expect((getMockCalls('post', '/api/product-templates')[0].body as any).warranty_days).toBe(0);
+  });
+
   it('listTemplates 应 GET 并按 name 排序', async () => {
     setMockResponse('get', '/api/product-templates', [TPL({ id: 2, name: 'B' }), TPL({ id: 1, name: 'A' })]);
     const list = await listTemplates();
     expect(list[0].name).toBe('A');
     expect(list[1].name).toBe('B');
+  });
+
+  it('listTemplates 应保留闲鱼来源账号和图片字段', async () => {
+    setMockResponse('get', '/api/product-templates', [
+      TPL({
+        source_xianyu_account_id: 2,
+        source_xianyu_item_id: 'ITEM-1',
+        image_url: 'https://example.test/item.png',
+      }),
+    ]);
+
+    const list = await listTemplates();
+
+    expect(list[0].source_xianyu_account_id).toBe(2);
+    expect(list[0].source_xianyu_item_id).toBe('ITEM-1');
+    expect(list[0].image_url).toBe('https://example.test/item.png');
   });
 
   it('listActiveTemplates 应传 active_only', async () => {

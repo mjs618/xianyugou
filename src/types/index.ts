@@ -64,6 +64,7 @@ export interface Transaction {
   cost_price: number;
   profit: number;
   trade_at: Date;
+  shipped_at?: Date;
   status: TransactionStatus;
   warranty_end?: Date;
   warranty_days: number;
@@ -119,6 +120,17 @@ export interface RebateRecord {
   created_at: Date;
 }
 
+// 运营支出记录（擦亮费、推广费等）
+export interface OperatingExpense {
+  id: number;
+  category: string;
+  amount: number;
+  occurred_at: Date;
+  notes?: string;
+  created_at: Date;
+  updated_at: Date;
+}
+
 // 商品模板表
 export interface ProductTemplate {
   id?: number;
@@ -126,8 +138,11 @@ export interface ProductTemplate {
   default_cost: number;
   default_sale_price?: number;
   category?: string;
+  image_url?: string;
   warranty_days: number;
   is_active: boolean;
+  source_xianyu_account_id?: number;
+  source_xianyu_item_id?: string;
   created_at: Date;
   updated_at: Date;
 }
@@ -154,6 +169,12 @@ export interface NotificationRecord {
   scheduled_at: Date;
   sent_at?: Date;
   created_at: Date;
+}
+
+export interface PendingSummary {
+  warrantyUrgent: number;
+  afterSalesPending: number;
+  rebatePending: number;
 }
 
 // 客户标签表
@@ -255,6 +276,7 @@ export interface FinanceOverview {
   totalIncome: number;
   totalCost: number;
   totalProfit: number;
+  operatingExpense?: number;
   profitRate: number;
   tradeCount: number;
   prevIncome: number;
@@ -319,6 +341,7 @@ export interface TransactionInput {
   sale_price: number;
   cost_price: number;
   trade_at: Date;
+  shipped_at?: Date;
   status: TransactionStatus;
   warranty_days: number;
   source_type: SourceType;
@@ -381,6 +404,16 @@ export interface XianyuAccountTestResult {
   message: string;
 }
 
+// CookieCloud 自动续 Cookie 配置状态（不包含任何密钥值）
+export interface CookieCloudConfigStatus {
+  enabled: boolean;
+  configured_keys: string[];
+  missing_keys: string[];
+  domain_keyword: string;
+  message: string;
+  next_step: string;
+}
+
 // 订单同步结果
 export interface XianyuSyncResult {
   success: boolean;
@@ -388,6 +421,32 @@ export interface XianyuSyncResult {
   created_count: number;
   skipped_count: number;
   error?: string;
+}
+
+export interface XianyuItemSyncResult {
+  success: boolean;
+  fetched: number;
+  upserted_count: number;
+  error?: string;
+}
+
+export interface XianyuItemImportResult {
+  created_count: number;
+  skipped_count: number;
+}
+
+export interface XianyuItem {
+  id: number;
+  account_id: number;
+  item_id: string;
+  title?: string;
+  price: number;
+  item_status?: string;
+  image_url?: string;
+  projected_template_id?: number;
+  last_seen_at: Date;
+  created_at: Date;
+  updated_at: Date;
 }
 
 // 闲鱼订单镜像（不含 raw_order，避免前端暴露平台原始响应）

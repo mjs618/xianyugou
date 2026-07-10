@@ -50,6 +50,27 @@ class XianyuOrder(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
+class XianyuItem(Base):
+    """闲鱼商品镜像：按账号隔离保存平台商品摘要。"""
+    __tablename__ = "xianyu_items"
+    __table_args__ = (
+        UniqueConstraint("account_id", "item_id", name="uq_xianyu_items_account_item_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    account_id: Mapped[int] = mapped_column(Integer, ForeignKey("xianyu_accounts.id"), nullable=False, index=True)
+    item_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    price: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    item_status: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    image_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    raw_item: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    projected_template_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=func.now(), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
 class XianyuSyncLog(Base):
     """订单同步日志：记录每次同步拉取/新增/跳过的数量"""
     __tablename__ = "xianyu_sync_logs"

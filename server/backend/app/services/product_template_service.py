@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import ProductTemplate
+from ..utils.helpers import now_utc
 
 
 async def list_templates(db: AsyncSession) -> list[ProductTemplate]:
@@ -29,6 +30,7 @@ async def update_template(db: AsyncSession, tpl_id: int, patch: dict) -> Product
     for k, v in patch.items():
         if hasattr(t, k):
             setattr(t, k, v)
+    t.updated_at = now_utc()
     await db.flush()
     return t
 

@@ -12,6 +12,7 @@ import {
 import { listNotifications, markAllAsRead, markAsRead } from '@/services/notificationService';
 import { useAppStore } from '@/store/useAppStore';
 import { formatDate } from '@/utils/date';
+import { getNotificationTarget } from '@/utils/notificationNavigation';
 import type { NotificationRecord } from '@/types';
 
 // 通知类型 -> 图标 + 颜色映射
@@ -39,11 +40,8 @@ export default function NotificationCenter({ isMobile }: { isMobile: boolean }) 
     setNotifOpen(false);
     refreshAll();
     loadNotifications();
-    if (n.type === 'warranty_expiring') navigate('/warranty');
-    else if (n.type === 'aftersales_pending') navigate('/after-sales');
-    else if (n.type === 'rebate_pending') navigate('/finance');
-    else if (n.type === 'customer_recall' && n.ref_id) navigate(`/customers/${n.ref_id}`);
-    else if (n.type === 'mail_alert') navigate('/send-mail');
+    const target = getNotificationTarget(n);
+    if (target) navigate(target);
   };
 
   const notifContent = (

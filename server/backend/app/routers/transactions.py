@@ -53,6 +53,7 @@ async def create_transaction(payload: TransactionCreate, db: AsyncSession = Depe
             sale_price=payload.sale_price,
             cost_price=payload.cost_price,
             trade_at=payload.trade_at,
+            shipped_at=payload.shipped_at,
             status=payload.status,
             warranty_days=payload.warranty_days,
             source_type=payload.source_type,

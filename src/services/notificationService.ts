@@ -4,7 +4,7 @@
 // - 通知 CRUD + 待办汇总：走后端 API
 // - 提醒生成（质保/回访/返利）：调后端 /reminders/check，后端负责查询+防重+写入
 // - 浏览器通知权限/弹窗：留前端（new Notification 是浏览器能力）
-import type { NotificationRecord } from '@/types';
+import type { NotificationRecord, PendingSummary } from '@/types';
 import { apiClient } from './apiClient';
 
 // 日期归一化
@@ -70,11 +70,7 @@ export async function dismiss(id: number): Promise<void> {
 }
 
 // 生成待处理事项汇总
-export async function getPendingSummary(): Promise<{
-  warrantyUrgent: number;
-  afterSalesPending: number;
-  rebatePending: number;
-}> {
+export async function getPendingSummary(): Promise<PendingSummary> {
   return apiClient.get('/api/notifications/pending-summary');
 }
 

@@ -57,6 +57,7 @@ class TransactionOut(ORMBase):
     cost_price: float
     profit: float
     trade_at: datetime
+    shipped_at: Optional[datetime] = None
     status: str
     warranty_end: Optional[datetime] = None
     warranty_days: int
@@ -77,6 +78,7 @@ class TransactionCreate(BaseModel):
     sale_price: float
     cost_price: float
     trade_at: datetime
+    shipped_at: Optional[datetime] = None
     status: str = "pending"
     warranty_days: Optional[int] = None
     source_type: str = "direct"
@@ -92,6 +94,7 @@ class TransactionUpdate(BaseModel):
     sale_price: Optional[float] = None
     cost_price: Optional[float] = None
     trade_at: Optional[datetime] = None
+    shipped_at: Optional[datetime] = None
     status: Optional[str] = None
     warranty_days: Optional[int] = None
     source_type: Optional[str] = None
@@ -155,6 +158,31 @@ class RebateBatchPay(BaseModel):
     ids: List[int]
 
 
+# ==================== 运营支出 ====================
+class OperatingExpenseOut(ORMBase):
+    id: int
+    category: str
+    amount: float
+    occurred_at: datetime
+    notes: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class OperatingExpenseCreate(BaseModel):
+    category: str = Field(default="擦亮", min_length=1, max_length=64)
+    amount: float = Field(gt=0)
+    occurred_at: datetime
+    notes: Optional[str] = None
+
+
+class OperatingExpenseUpdate(BaseModel):
+    category: Optional[str] = Field(default=None, min_length=1, max_length=64)
+    amount: Optional[float] = Field(default=None, gt=0)
+    occurred_at: Optional[datetime] = None
+    notes: Optional[str] = None
+
+
 # ==================== 商品模板 ====================
 class ProductTemplateOut(ORMBase):
     id: int
@@ -162,8 +190,11 @@ class ProductTemplateOut(ORMBase):
     default_cost: float
     default_sale_price: Optional[float] = None
     category: Optional[str] = None
+    image_url: Optional[str] = None
     warranty_days: int
     is_active: bool
+    source_xianyu_account_id: Optional[int] = None
+    source_xianyu_item_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -173,8 +204,11 @@ class ProductTemplateCreate(BaseModel):
     default_cost: float
     default_sale_price: Optional[float] = None
     category: Optional[str] = None
-    warranty_days: int = 30
+    image_url: Optional[str] = None
+    warranty_days: int = Field(default=30, ge=0)
     is_active: bool = True
+    source_xianyu_account_id: Optional[int] = None
+    source_xianyu_item_id: Optional[str] = None
 
 
 class ProductTemplateUpdate(BaseModel):
@@ -182,8 +216,11 @@ class ProductTemplateUpdate(BaseModel):
     default_cost: Optional[float] = None
     default_sale_price: Optional[float] = None
     category: Optional[str] = None
-    warranty_days: Optional[int] = None
+    image_url: Optional[str] = None
+    warranty_days: Optional[int] = Field(default=None, ge=0)
     is_active: Optional[bool] = None
+    source_xianyu_account_id: Optional[int] = None
+    source_xianyu_item_id: Optional[str] = None
 
 
 # ==================== 设置 ====================
@@ -251,6 +288,11 @@ class XianyuAccountCreate(BaseModel):
     cookies: str
 
 
+class XianyuAccountUpdate(BaseModel):
+    nickname: Optional[str] = None
+    cookies: Optional[str] = None
+
+
 class XianyuAccountOut(ORMBase):
     id: int
     nickname: str
@@ -268,12 +310,53 @@ class XianyuAccountTestResult(BaseModel):
     message: str
 
 
+class CookieCloudConfigStatus(BaseModel):
+    enabled: bool
+    configured_keys: list[str] = []
+    missing_keys: list[str] = []
+    domain_keyword: str
+    message: str
+    next_step: str
+
+
 class XianyuSyncResult(BaseModel):
     success: bool
     fetched: int = 0
     created_count: int = 0
     skipped_count: int = 0
     error: Optional[str] = None
+
+
+class XianyuItemSyncResult(BaseModel):
+    success: bool
+    fetched: int = 0
+    upserted_count: int = 0
+    error: Optional[str] = None
+
+
+class XianyuItemOut(ORMBase):
+    id: int
+    account_id: int
+    item_id: str
+    title: Optional[str] = None
+    price: float
+    item_status: Optional[str] = None
+    image_url: Optional[str] = None
+    projected_template_id: Optional[int] = None
+    last_seen_at: datetime
+    created_at: datetime
+    updated_at: datetime
+
+
+class XianyuItemImportRequest(BaseModel):
+    mirror_ids: list[int] = Field(default_factory=list)
+    default_cost: float = Field(default=0.0, ge=0)
+    warranty_days: int = Field(default=30, ge=0)
+
+
+class XianyuItemImportResult(BaseModel):
+    created_count: int = 0
+    skipped_count: int = 0
 
 
 class XianyuOrderOut(ORMBase):

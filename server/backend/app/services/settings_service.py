@@ -45,8 +45,8 @@ async def update_settings(db: AsyncSession, patch: dict[str, Any]) -> SettingsMo
     if "rebate_rate" in patch and patch["rebate_rate"] is not None:
         if not (0 <= patch["rebate_rate"] <= 1):
             raise SettingsError("返利比例必须在 0~1 之间")
-    if "warranty_days" in patch and patch["warranty_days"] is not None and patch["warranty_days"] <= 0:
-        raise SettingsError("质保天数必须大于 0")
+    if "warranty_days" in patch and patch["warranty_days"] is not None and patch["warranty_days"] < 0:
+        raise SettingsError("质保天数不能为负数")
     for k in ("vip_threshold", "core_threshold", "vip_trade_count", "core_trade_count"):
         if k in patch and patch[k] is not None and patch[k] < 0:
             raise SettingsError(f"{k} 不能为负数")

@@ -41,6 +41,7 @@ async def create_transaction(
     sale_price: float,
     cost_price: float,
     trade_at: datetime,
+    shipped_at: Optional[datetime] = None,
     status: str = "pending",
     warranty_days: Optional[int] = None,
     source_type: str = "direct",
@@ -57,7 +58,8 @@ async def create_transaction(
     s = await get_settings(db)
     profit = calc_profit(sale_price, cost_price)
     wdays = warranty_days if warranty_days is not None else s.warranty_days
-    warranty_end = calc_warranty_end(trade_at, wdays) if status == "completed" else None
+    warranty_start = shipped_at or trade_at
+    warranty_end = calc_warranty_end(warranty_start, wdays) if status == "completed" and wdays > 0 else None
 
     now = now_utc()
     tx = Transaction(
@@ -69,6 +71,7 @@ async def create_transaction(
         cost_price=cost_price,
         profit=profit,
         trade_at=trade_at,
+        shipped_at=shipped_at if status == "completed" else None,
         status=status,
         warranty_end=warranty_end,
         warranty_days=wdays,
@@ -186,10 +189,14 @@ async def change_status(db: AsyncSession, tx_id: int, status: str, expected_vers
     t.status = status
     t.version += 1
     t.updated_at = now_utc()
-    if status == "completed" and not t.warranty_end:
-        t.warranty_end = calc_warranty_end(t.trade_at, t.warranty_days)
-    if status == "pending" and t.warranty_end:
+    if status == "completed":
+        if not t.shipped_at:
+            t.shipped_at = now_utc()
+        if t.warranty_days > 0 and not t.warranty_end:
+            t.warranty_end = calc_warranty_end(t.shipped_at, t.warranty_days)
+    if status == "pending":
         t.warranty_end = None
+        t.shipped_at = None
     await db.flush()
 
     await log_operation(
@@ -220,20 +227,27 @@ async def update_transaction(db: AsyncSession, tx_id: int, patch: dict, expected
         t.profit = calc_profit(sale, cost)
 
     if "warranty_days" in patch and patch["warranty_days"] is not None:
+        if patch["warranty_days"] < 0:
+            raise TransactionError("质保天数不能为负数")
         t.warranty_days = patch["warranty_days"]
 
-    if patch.get("status") == "completed" and t.status != "completed":
-        t.warranty_end = calc_warranty_end(t.trade_at, t.warranty_days)
-    if patch.get("status") == "pending" and t.status != "pending" and t.warranty_end:
-        t.warranty_end = None
     if "trade_at" in patch and patch["trade_at"]:
         t.trade_at = patch["trade_at"]
+    if "shipped_at" in patch:
+        t.shipped_at = patch["shipped_at"]
 
     # 其余字段
     for k in ("xianyu_order_no", "product_name", "product_template_id", "sale_price",
               "cost_price", "status", "source_type", "source_customer_id", "notes", "attachments"):
         if k in patch:
             setattr(t, k, patch[k])
+
+    if t.status == "completed":
+        warranty_start = t.shipped_at or t.trade_at
+        t.warranty_end = calc_warranty_end(warranty_start, t.warranty_days) if t.warranty_days > 0 else None
+    elif t.status == "pending":
+        t.warranty_end = None
+        t.shipped_at = None
 
     t.version += 1
     t.updated_at = now_utc()

@@ -1,16 +1,18 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Card, Table, Button, Space, Tag, Modal, Input, Select, message, Row, Col, Statistic, Empty, Tabs, DatePicker, Popconfirm, Result } from 'antd';
 import { PlusOutlined, SearchOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { listAfterSales, createAfterSales, updateStatus, deleteAfterSales, getAfterSalesStats, getTopIssueProducts } from '@/services/afterSalesService';
 import { listTransactions } from '@/services/transactionService';
 import AttachmentUpload from '@/components/AttachmentUpload';
 import { formatDateTime } from '@/utils/date';
 import { formatPercent } from '@/utils/format';
+import { clampPageForRecordCount, getPageForRecordId } from '@/utils/pagination';
 import type { AfterSales, Transaction, AfterSalesStatus, SolutionType } from '@/types';
 
 const { TextArea } = Input;
+const PAGE_SIZE = 20;
 
 const statusMap: Record<AfterSalesStatus, { label: string; color: string }> = {
   pending: { label: '待处理', color: 'red' },
@@ -26,8 +28,17 @@ const solutionMap: Record<SolutionType, string> = {
   other: '其他',
 };
 
+function getAfterSalesOverdueHours(ticket: AfterSales): number {
+  if (ticket.status !== 'pending' && ticket.status !== 'processing') return 0;
+  const threshold = ticket.status === 'pending' ? 24 : 48;
+  const elapsed = dayjs().diff(dayjs(ticket.created_at), 'hour');
+  return elapsed > threshold ? elapsed : 0;
+}
+
 export default function AfterSalesList() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const focusedTicketId = Number(searchParams.get('ticketId') || 0);
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<AfterSales[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -43,6 +54,7 @@ export default function AfterSalesList() {
   const [stats, setStats] = useState<{ totalCount: number; pendingCount: number; resolvedCount: number; avgDurationHours: number; rate: number } | null>(null);
   const [topIssues, setTopIssues] = useState<{ productName: string; count: number }[]>([]);
   const [loadError, setLoadError] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -79,6 +91,15 @@ export default function AfterSalesList() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    if (!focusedTicketId || data.length === 0) return;
+    const ticket = data.find((item) => item.id === focusedTicketId);
+    if (!ticket) return;
+    setStatusFilter('all');
+    setKeyword('');
+    setDateRange(null);
+  }, [focusedTicketId, data]);
 
   const handleCreate = async () => {
     if (!createForm.transaction_id || !createForm.issue_desc.trim()) {
@@ -141,7 +162,12 @@ export default function AfterSalesList() {
       title: '工单',
       dataIndex: 'id',
       width: 70,
-      render: (id: number) => `#${id}`,
+      render: (id: number) => (
+        <Space size={4}>
+          <span>#{id}</span>
+          {id === focusedTicketId && <Tag color="gold">定位</Tag>}
+        </Space>
+      ),
     },
     {
       title: '关联交易',
@@ -173,6 +199,14 @@ export default function AfterSalesList() {
       dataIndex: 'status',
       width: 90,
       render: (s: AfterSalesStatus) => <Tag color={statusMap[s].color}>{statusMap[s].label}</Tag>,
+    },
+    {
+      title: '跟进',
+      width: 110,
+      render: (_: unknown, r: AfterSales) => {
+        const overdueHours = getAfterSalesOverdueHours(r);
+        return overdueHours > 0 ? <Tag color="red">超时 {overdueHours}h</Tag> : <span style={{ color: 'var(--color-text-tertiary)' }}>-</span>;
+      },
     },
     {
       title: '解决方式',
@@ -221,7 +255,11 @@ export default function AfterSalesList() {
   ];
 
   const filteredData = useMemo(() => data.filter((a) => {
-    if (statusFilter !== 'all' && a.status !== statusFilter) return false;
+    if (statusFilter === 'overdue') {
+      if (getAfterSalesOverdueHours(a) === 0) return false;
+    } else if (statusFilter !== 'all' && a.status !== statusFilter) {
+      return false;
+    }
     if (dateRange) {
       const created = dayjs(a.created_at);
       if (created.isBefore(dateRange[0], 'day') || created.isAfter(dateRange[1], 'day')) return false;
@@ -242,6 +280,20 @@ export default function AfterSalesList() {
     return m;
   }, [data]);
   const countByStatus = (s: AfterSalesStatus) => statusCounts[s] || 0;
+  const overdueCount = useMemo(() => data.filter((a) => getAfterSalesOverdueHours(a) > 0).length, [data]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, keyword, dateRange]);
+
+  useEffect(() => {
+    if (!focusedTicketId) return;
+    setCurrentPage((page) => getPageForRecordId(filteredData, focusedTicketId, PAGE_SIZE, page));
+  }, [focusedTicketId, filteredData]);
+
+  useEffect(() => {
+    setCurrentPage((page) => clampPageForRecordCount(filteredData.length, PAGE_SIZE, page));
+  }, [filteredData.length]);
 
   return (
     <div>
@@ -251,6 +303,9 @@ export default function AfterSalesList() {
         </Col>
         <Col xs={12} sm={6}>
           <Card><Statistic title="待处理" value={stats?.pendingCount || 0} valueStyle={{ color: 'var(--color-danger)' }} /></Card>
+        </Col>
+        <Col xs={12} sm={6}>
+          <Card><Statistic title="超时未完成" value={overdueCount} valueStyle={{ color: 'var(--color-danger)' }} /></Card>
         </Col>
         <Col xs={12} sm={6}>
           <Card><Statistic title="售后率" value={formatPercent(stats?.rate || 0)} /></Card>
@@ -280,6 +335,7 @@ export default function AfterSalesList() {
           onChange={setStatusFilter}
           items={[
             { key: 'all', label: `全部 (${data.length})` },
+            { key: 'overdue', label: <span style={{ color: 'var(--color-danger)' }}>超时 ({overdueCount})</span> },
             { key: 'pending', label: <span style={{ color: 'var(--color-danger)' }}>待处理 ({countByStatus('pending')})</span> },
             { key: 'processing', label: <span style={{ color: 'var(--theme-primary)' }}>处理中 ({countByStatus('processing')})</span> },
             { key: 'resolved', label: <span style={{ color: 'var(--color-success)' }}>已解决 ({countByStatus('resolved')})</span> },
@@ -319,6 +375,9 @@ export default function AfterSalesList() {
           dataSource={filteredData}
           columns={columns}
           size="middle"
+          onRow={(record) => ({
+            style: record.id === focusedTicketId ? { background: 'var(--color-warning-light)' } : undefined,
+          })}
           locale={{
             emptyText: data.length === 0 ? (
               <Empty
@@ -336,7 +395,11 @@ export default function AfterSalesList() {
               <Empty description="未匹配到符合条件的售后记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
             ),
           }}
-          pagination={{ pageSize: 20 }}
+          pagination={{
+            current: currentPage,
+            pageSize: PAGE_SIZE,
+            onChange: (page) => setCurrentPage(page),
+          }}
         />
           </>
         )}

@@ -36,6 +36,10 @@ services:
     environment:
       - DATABASE_URL=sqlite+aiosqlite:////app/data/xianyu.db
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:${WEB_PORT:-15173},http://127.0.0.1:${WEB_PORT:-15173}}
+      - COOKIE_CLOUD_HOST=${COOKIE_CLOUD_HOST:-}
+      - COOKIE_CLOUD_UUID=${COOKIE_CLOUD_UUID:-}
+      - COOKIE_CLOUD_PASSWORD=${COOKIE_CLOUD_PASSWORD:-}
+      - COOKIE_CLOUD_DOMAIN_KEYWORD=${COOKIE_CLOUD_DOMAIN_KEYWORD:-goofish.com}
     restart: unless-stopped
 
 volumes:

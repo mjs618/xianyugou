@@ -5,7 +5,7 @@ import calendar
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Transaction, RebateRecord, Customer
+from ..models import Transaction, RebateRecord, Customer, OperatingExpense
 from ..utils.helpers import round2, now_utc
 
 
@@ -38,12 +38,20 @@ async def get_finance_overview(db: AsyncSession, *, month: bool = True) -> dict:
         (await db.execute(base.where(Transaction.trade_at >= prev_start, Transaction.trade_at <= prev_end))).scalars().all()
     ) if month else []
 
+    if month:
+        cur_expense = await _sum_expenses_between(db, start, now)
+        prev_expense = await _sum_expenses_between(db, prev_start, prev_end)
+    else:
+        cur_expense = 0.0
+        prev_expense = 0.0
+
     total_income = round2(sum(t.sale_price for t in cur_trades))
-    total_cost = round2(sum(t.cost_price for t in cur_trades))
+    total_cost = round2(sum(t.cost_price for t in cur_trades) + cur_expense)
     total_profit = round2(total_income - total_cost)
     profit_rate = round2(total_profit / total_income) if total_income > 0 else 0.0
     prev_income = round2(sum(t.sale_price for t in prev_trades))
-    prev_profit = round2(sum(t.profit for t in prev_trades))
+    prev_cost = round2(sum(t.cost_price for t in prev_trades) + prev_expense)
+    prev_profit = round2(prev_income - prev_cost)
     prev_count = len(prev_trades)
 
     def _change(cur: float, prev: float) -> float:
@@ -55,6 +63,7 @@ async def get_finance_overview(db: AsyncSession, *, month: bool = True) -> dict:
         "totalIncome": total_income,
         "totalCost": total_cost,
         "totalProfit": total_profit,
+        "operatingExpense": cur_expense,
         "profitRate": profit_rate,
         "tradeCount": len(cur_trades),
         "prevIncome": prev_income,
@@ -109,13 +118,20 @@ async def get_customer_value_stats(db: AsyncSession, limit: int = 100) -> list[d
     ]
 
 
-def _build_overview(cur: list[Transaction], prev: list[Transaction]) -> dict:
+def _build_overview(
+    cur: list[Transaction],
+    prev: list[Transaction],
+    *,
+    cur_expense: float = 0.0,
+    prev_expense: float = 0.0,
+) -> dict:
     """从两段交易列表构建 overview（复刻前端 buildOverview）。"""
     total_income = round2(sum(t.sale_price for t in cur))
-    total_cost = round2(sum(t.cost_price for t in cur))
-    total_profit = round2(sum(t.profit for t in cur))
+    total_cost = round2(sum(t.cost_price for t in cur) + cur_expense)
+    total_profit = round2(total_income - total_cost)
     prev_income = round2(sum(t.sale_price for t in prev))
-    prev_profit = round2(sum(t.profit for t in prev))
+    prev_cost = round2(sum(t.cost_price for t in prev) + prev_expense)
+    prev_profit = round2(prev_income - prev_cost)
     prev_count = len(prev)
 
     def _change(c: float, p: float) -> float:
@@ -127,6 +143,7 @@ def _build_overview(cur: list[Transaction], prev: list[Transaction]) -> dict:
         "totalIncome": total_income,
         "totalCost": total_cost,
         "totalProfit": total_profit,
+        "operatingExpense": cur_expense,
         "profitRate": round2(total_profit / total_income) if total_income > 0 else 0.0,
         "tradeCount": len(cur),
         "prevIncome": prev_income,
@@ -147,6 +164,28 @@ async def _trades_between(db: AsyncSession, start: datetime, end: datetime) -> l
     return list((await db.execute(stmt)).scalars().all())
 
 
+async def _expenses_between(db: AsyncSession, start: datetime, end: datetime) -> list[OperatingExpense]:
+    stmt = select(OperatingExpense).where(
+        OperatingExpense.deleted_at.is_(None),
+        OperatingExpense.occurred_at >= start,
+        OperatingExpense.occurred_at <= end,
+    )
+    return list((await db.execute(stmt)).scalars().all())
+
+
+async def _sum_expenses_between(db: AsyncSession, start: datetime, end: datetime) -> float:
+    total = (
+        await db.execute(
+            select(func.coalesce(func.sum(OperatingExpense.amount), 0.0)).where(
+                OperatingExpense.deleted_at.is_(None),
+                OperatingExpense.occurred_at >= start,
+                OperatingExpense.occurred_at <= end,
+            )
+        )
+    ).scalar_one()
+    return round2(float(total or 0.0))
+
+
 async def get_finance_overview_by_range(db: AsyncSession, start: datetime, end: datetime) -> dict:
     """自定义时间范围收支总览，环比 = 上一同等长度周期。"""
     cur = await _trades_between(db, start, end)
@@ -154,14 +193,17 @@ async def get_finance_overview_by_range(db: AsyncSession, start: datetime, end: 
     prev_end = start - timedelta(microseconds=1)
     prev_start = prev_end - duration
     prev = await _trades_between(db, prev_start, prev_end)
-    return _build_overview(cur, prev)
+    cur_expense = await _sum_expenses_between(db, start, end)
+    prev_expense = await _sum_expenses_between(db, prev_start, prev_end)
+    return _build_overview(cur, prev, cur_expense=cur_expense, prev_expense=prev_expense)
 
 
 async def get_trend(db: AsyncSession, days: int = 30) -> list[dict]:
     """近 N 天每日收支趋势（复刻前端 getTrend）。"""
     end = now_utc()
-    start = end - timedelta(days=days - 1)
+    start = (end - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
     trades = await _trades_between(db, start, end)
+    expenses = await _expenses_between(db, start, end)
     # 构建日期序列
     series: list[str] = []
     cur_date = start.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -176,6 +218,11 @@ async def get_trend(db: AsyncSession, days: int = 30) -> list[dict]:
             bucket[key]["income"] += t.sale_price
             bucket[key]["cost"] += t.cost_price
             bucket[key]["profit"] += t.profit
+    for expense in expenses:
+        key = expense.occurred_at.strftime("%Y-%m-%d") if expense.occurred_at else None
+        if key and key in bucket:
+            bucket[key]["cost"] += expense.amount
+            bucket[key]["profit"] -= expense.amount
     return [{"date": d, "income": round2(v["income"]), "cost": round2(v["cost"]), "profit": round2(v["profit"])} for d, v in zip(series, [bucket[d] for d in series])]
 
 
@@ -193,6 +240,7 @@ async def get_monthly_comparison(db: AsyncSession, months: int = 6) -> list[dict
             y -= 1
     start = datetime(y, m, 1)
     trades = await _trades_between(db, start, now)
+    expenses = await _expenses_between(db, start, now)
     bucket: dict[str, dict] = {}
     keys_order: list[str] = []
     cy, cm = y, m
@@ -213,6 +261,13 @@ async def get_monthly_comparison(db: AsyncSession, months: int = 6) -> list[dict
             bucket[k]["cost"] += t.cost_price
             bucket[k]["profit"] += t.profit
             bucket[k]["count"] += 1
+    for expense in expenses:
+        if not expense.occurred_at:
+            continue
+        k = expense.occurred_at.strftime("%Y-%m")
+        if k in bucket:
+            bucket[k]["cost"] += expense.amount
+            bucket[k]["profit"] -= expense.amount
     return [
         {
             "month": f"{int(k.split('-')[1])}月",

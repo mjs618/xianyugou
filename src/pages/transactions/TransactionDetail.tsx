@@ -12,6 +12,7 @@ import WarrantyTag from '@/components/WarrantyTag';
 import AttachmentUpload from '@/components/AttachmentUpload';
 import { formatMoney } from '@/utils/format';
 import { formatDate, formatDateTime } from '@/utils/date';
+import { canManageWarranty, getWarrantyStartLabel } from '@/utils/warranty';
 import { useAppStore } from '@/store/useAppStore';
 import type { Transaction, Customer, AfterSales, WarrantyExtension, RebateRecord, TransactionStatus } from '@/types';
 
@@ -163,6 +164,7 @@ export default function TransactionDetail() {
     </Card>
   );
   if (!transaction) return <Empty />;
+  const canManageTransactionWarranty = canManageWarranty(transaction);
 
   return (
     <Card
@@ -191,6 +193,7 @@ export default function TransactionDetail() {
           <span style={{ color: 'var(--color-success)', fontWeight: 600 }}>{formatMoney(transaction.profit)}</span>
         </Descriptions.Item>
         <Descriptions.Item label="交易时间">{formatDateTime(transaction.trade_at)}</Descriptions.Item>
+        <Descriptions.Item label="发货时间">{transaction.shipped_at ? formatDateTime(transaction.shipped_at) : '-'}</Descriptions.Item>
         <Descriptions.Item label="买家">
           {customer ? <a onClick={() => navigate(`/customers/${customer.id}`)}>{customer.xianyu_nickname}</a> : '-'}
         </Descriptions.Item>
@@ -204,19 +207,22 @@ export default function TransactionDetail() {
         <Descriptions.Item label="质保状态">
           <WarrantyTag warrantyEnd={transaction.warranty_end} status={transaction.status} />
         </Descriptions.Item>
-        <Descriptions.Item label="质保周期">{transaction.warranty_days} 天</Descriptions.Item>
+        <Descriptions.Item label="质保周期">{transaction.warranty_days > 0 ? `${transaction.warranty_days} 天` : '不质保'}</Descriptions.Item>
+        <Descriptions.Item label="起算时间">
+          {getWarrantyStartLabel(transaction, formatDateTime)}
+        </Descriptions.Item>
         <Descriptions.Item label="到期时间">
           {transaction.warranty_end ? formatDateTime(transaction.warranty_end) : '-'}
         </Descriptions.Item>
         <Descriptions.Item label="操作">
-          <Space>
-            <Button size="small" icon={<ClockCircleOutlined />} onClick={() => setExtendModalOpen(true)}>延长质保</Button>
-            {transaction.warranty_end && (
+          {canManageTransactionWarranty ? (
+            <Space>
+              <Button size="small" icon={<ClockCircleOutlined />} onClick={() => setExtendModalOpen(true)}>延长质保</Button>
               <Popconfirm title="确认提前结束质保？" description="质保将立即失效，此操作不可撤销。" onConfirm={handleEndWarranty} okText="确认" cancelText="取消" okButtonProps={{ danger: true }}>
                 <Button size="small" danger>提前结束</Button>
               </Popconfirm>
-            )}
-          </Space>
+            </Space>
+          ) : '-'}
         </Descriptions.Item>
       </Descriptions>
 

@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     xianyu_mtop_endpoint: str = "https://h5api.m.goofish.com/h5/{api}/{version}/"
     xianyu_origin: str = "https://www.goofish.com"
 
+    # CookieCloud：可选。配置后在闲鱼登录态失效时尝试从自建 CookieCloud 拉取最新 goofish Cookie。
+    cookie_cloud_host: str = ""
+    cookie_cloud_uuid: str = ""
+    cookie_cloud_password: str = ""
+    cookie_cloud_domain_keyword: str = "goofish.com"
+
     @property
     def is_sqlite(self) -> bool:
         return self.database_url.startswith("sqlite")

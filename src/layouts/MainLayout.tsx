@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Layout, Menu, Button, Drawer, Space, Tooltip, Grid } from 'antd';
+import { Layout, Menu, Button, Drawer, Space, Tooltip, Grid, Badge } from 'antd';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import {
   HomeOutlined,
@@ -22,6 +22,8 @@ import { useAppStore } from '@/store/useAppStore';
 import { runAllReminderChecks } from '@/services/notificationService';
 import GlobalSearch, { invalidateSearchCache } from '@/components/GlobalSearch';
 import NotificationCenter from '@/components/NotificationCenter';
+import { getNavigationBadgeCount } from '@/utils/navigationBadges';
+import { buildLayoutMenuItems } from '@/utils/layoutNavigation';
 
 const { Sider, Header, Content } = Layout;
 const { useBreakpoint } = Grid;
@@ -53,7 +55,7 @@ export default function MainLayout() {
   const location = useLocation();
   const screens = useBreakpoint();
   const isMobile = !screens.md; // md = 768px 以下为移动端
-  const { collapsed, setCollapsed, refreshAll } = useAppStore();
+  const { collapsed, setCollapsed, refreshAll, pendingSummary } = useAppStore();
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
 
@@ -124,10 +126,7 @@ export default function MainLayout() {
           <Menu
             mode="inline"
             selectedKeys={[selectedKey]}
-            items={menuItems.map((m) => ({
-              ...m,
-              label: collapsed ? null : m.label,
-            }))}
+            items={buildLayoutMenuItems(menuItems, collapsed, pendingSummary)}
             onClick={({ key }) => navigate(key)}
             style={{ borderRight: 'none', marginTop: 8, fontSize: 14 }}
           />
@@ -197,7 +196,9 @@ export default function MainLayout() {
                 aria-current={isActive ? 'page' : undefined}
               >
                 {item.icon}
-                <span style={{ marginTop: 2 }}>{item.label}</span>
+                <Badge count={getNavigationBadgeCount(item.key, pendingSummary)} size="small" offset={[8, -2]}>
+                  <span style={{ marginTop: 2 }}>{item.label}</span>
+                </Badge>
               </button>
             );
           })}

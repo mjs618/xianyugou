@@ -4,7 +4,7 @@ import path from 'node:path';
 
 export default defineConfig({
   plugins: [react()],
-  root: process.cwd(),
+  root: __dirname,
   base: '/',
   resolve: {
     alias: {

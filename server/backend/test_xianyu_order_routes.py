@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -6,7 +7,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.database import Base, get_db
 from app.main import app
 from app.models import XianyuAccount
-from app.services.xianyu.order_service import upsert_order_mirror
+from app.services.xianyu.order_service import SyncAlreadyRunningError, upsert_order_mirror
 
 
 class XianyuOrderRouteTests(unittest.IsolatedAsyncioTestCase):
@@ -73,6 +74,19 @@ class XianyuOrderRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(row["sale_price"], 88.0)
         self.assertNotIn("raw_order", row)
         self.assertNotIn("COOKIE_SENTINEL", response.text)
+
+    async def test_sync_orders_returns_conflict_when_account_sync_is_running(self):
+        with patch(
+            "app.routers.xianyu.sync_orders_for_account",
+            side_effect=SyncAlreadyRunningError("running"),
+        ):
+            async with AsyncClient(
+                transport=ASGITransport(app=app, raise_app_exceptions=False),
+                base_url="http://test",
+            ) as client:
+                response = await client.post("/api/xianyu/accounts/1/sync-orders")
+
+        self.assertEqual(response.status_code, 409)
 
 
 if __name__ == "__main__":
