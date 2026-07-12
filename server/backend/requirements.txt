@@ -1,13 +1,14 @@
 # 闲鱼记账与客户管理系统 - Python 后端依赖
-# 兼容 Python 3.9+（所有版本均提供 py39 预编译 wheel，无需 C 编译器）
-fastapi==0.109.2
-uvicorn[standard]==0.27.1
-SQLAlchemy==2.0.25
-greenlet==3.0.3          # 锁定 3.0.3：有 cp39 win 预编译 wheel，避免源码编译
-aiosqlite==0.19.0
-pydantic==2.6.1
-pydantic-settings==2.1.0
-cryptography==42.0.2
-python-multipart==0.0.9
-httpx==0.26.0
+# 兼容 Python 3.9+（所有版本均提供 py39/py311/py313 预编译 wheel，无需 C 编译器）
+# 版本兼顾 Docker python:3.11-slim 与本地 Python 3.13 开发环境
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+SQLAlchemy==2.0.35
+greenlet==3.2.2          # 3.1.1+ 提供 cp313 wheel，避免源码编译
+aiosqlite==0.20.0
+pydantic==2.9.0          # 2.9+ 的 pydantic-core 提供 cp313 wheel
+pydantic-settings==2.5.2
+cryptography==43.0.1
+python-multipart==0.0.12
+httpx==0.27.2
 alembic==1.13.2
