@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import unittest
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -56,7 +56,7 @@ class ExpenseFinanceServiceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_trend_and_monthly_comparison_subtract_operating_expense(self):
         async with self.Session() as db:
-            day = datetime.utcnow() - timedelta(minutes=1)
+            day = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=1)
             db.add(Transaction(
                 customer_id=1,
                 product_name="商品A",

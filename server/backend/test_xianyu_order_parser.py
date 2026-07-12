@@ -2,7 +2,7 @@ import ast
 import importlib
 import importlib.util
 import unittest
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -79,7 +79,7 @@ class XianyuOrderParserTests(unittest.TestCase):
         )
         self.assertEqual(
             parser.extract_shipped_time(order),
-            datetime.utcfromtimestamp(1782900000),
+            datetime.fromtimestamp(1782900000, timezone.utc).replace(tzinfo=None),
         )
 
     def test_parser_has_standard_library_dependencies_and_owns_functions(self):

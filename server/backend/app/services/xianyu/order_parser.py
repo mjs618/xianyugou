@@ -1,5 +1,5 @@
 """Pure parsing helpers for raw Xianyu order payloads."""
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 
@@ -218,7 +218,8 @@ def _parse_order_time(
                 timestamp = float(value)
                 if timestamp > 1e12:
                     timestamp /= 1000
-                return datetime.utcfromtimestamp(timestamp)
+                # naive UTC，与 helpers.parse_date 口径一致
+                return datetime.fromtimestamp(timestamp, timezone.utc).replace(tzinfo=None)
             except (ValueError, TypeError):
                 continue
     return fallback

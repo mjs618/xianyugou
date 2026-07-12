@@ -10,8 +10,12 @@ class ConcurrencyError(Exception):
 
 
 def now_utc() -> datetime:
-    """当前 UTC 时间（naive，与 SQLite DateTime 默认一致）"""
-    return datetime.utcnow()
+    """当前 UTC 时间（naive，与 SQLite DateTime 默认一致）。
+
+    使用 timezone-aware API 再剥离时区，等价于已弃用的 datetime.utcnow()，
+    避免 Python 3.12+ 的 DeprecationWarning。
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def to_aware(dt: Optional[datetime]) -> Optional[datetime]:
@@ -30,8 +34,8 @@ def parse_date(value: Any) -> Optional[datetime]:
     if isinstance(value, datetime):
         return value
     if isinstance(value, (int, float)):
-        # 毫秒时间戳
-        return datetime.utcfromtimestamp(value / 1000.0)
+        # 毫秒时间戳（naive UTC）
+        return datetime.fromtimestamp(value / 1000.0, timezone.utc).replace(tzinfo=None)
     if isinstance(value, str):
         s = value.strip()
         if not s:
@@ -43,7 +47,7 @@ def parse_date(value: Any) -> Optional[datetime]:
             pass
         # 尝试纯数字时间戳
         if s.isdigit():
-            return datetime.utcfromtimestamp(int(s) / 1000.0)
+            return datetime.fromtimestamp(int(s) / 1000.0, timezone.utc).replace(tzinfo=None)
     return None
 
 
