@@ -1,6 +1,7 @@
 """闲鱼账号服务 - CRUD、Cookie 加密、校验、触发订单同步。"""
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Optional
 import httpx
 from sqlalchemy import select
@@ -15,6 +16,38 @@ from .cookiecloud_service import CookieCloudError, fetch_cookie_header_from_cook
 
 class XianyuAccountError(ValueError):
     pass
+
+
+class XianyuSyncPausedError(XianyuAccountError):
+    pass
+
+
+class XianyuSyncRateLimitedError(XianyuAccountError):
+    pass
+
+
+MIN_MANUAL_SYNC_INTERVAL_MINUTES = 60
+
+
+def ensure_account_not_paused(account: XianyuAccount) -> None:
+    if account.status == "paused":
+        raise XianyuSyncPausedError("账号已暂停，请更新 Cookie 并显式恢复后再同步")
+
+
+async def ensure_manual_order_sync_allowed(
+    db: AsyncSession, account_id: int
+) -> XianyuAccount:
+    account = await get_account(db, account_id)
+    if account is None:
+        raise XianyuAccountError("闲鱼账号不存在")
+    ensure_account_not_paused(account)
+    if account.last_sync_at is not None:
+        earliest_retry = account.last_sync_at + timedelta(
+            minutes=MIN_MANUAL_SYNC_INTERVAL_MINUTES
+        )
+        if now_utc() < earliest_retry:
+            raise XianyuSyncRateLimitedError("手动同步间隔不能少于 60 分钟")
+    return account
 
 
 def _mask(account: XianyuAccount) -> XianyuAccount:
@@ -64,8 +97,50 @@ async def update_account(db: AsyncSession, account_id: int, patch: dict) -> Xian
             raise XianyuAccountError(message)
         account.cookies = encrypt_field(patch["cookies"])
         account.unb = unb
-        account.status = "online"
-        account.last_error = None
+        # 更新 Cookie 本身不自动解除暂停；暂停需走 recover_account 显式恢复
+        if account.status != "paused":
+            account.status = "online"
+            account.last_error = None
+            account.consecutive_failures = 0
+    # P3 自动同步配置（min 60 分钟由 schema 层保证）
+    if "auto_sync_enabled" in patch and patch["auto_sync_enabled"] is not None:
+        account.auto_sync_enabled = bool(patch["auto_sync_enabled"])
+    if (
+        "auto_sync_interval_minutes" in patch
+        and patch["auto_sync_interval_minutes"] is not None
+    ):
+        account.auto_sync_interval_minutes = patch["auto_sync_interval_minutes"]
+    account.updated_at = now_utc()
+    await db.flush()
+    return account
+
+
+async def recover_account(db: AsyncSession, account_id: int) -> XianyuAccount:
+    """从熔断暂停状态恢复。
+
+    对应设计文档 P3：「暂停后必须人工更新 Cookie、通过只读校验并点击恢复」。
+    两项前置条件：
+    1. 账号自暂停后必须已更新过 Cookie（updated_at > paused_at）；
+    2. 当前 Cookie 通过只读格式校验（含 unb 与 _m_h5_tk）。
+    满足后才清零失败计数、解除暂停。
+    """
+    account = await get_account(db, account_id)
+    if account is None:
+        raise XianyuAccountError("闲鱼账号不存在")
+    if account.status != "paused":
+        raise XianyuAccountError("账号未处于暂停状态，无需恢复")
+    if account.paused_at is not None and account.updated_at <= account.paused_at:
+        raise XianyuAccountError(
+            "恢复前请先更新账号 Cookie（暂停后未检测到 Cookie 更新）"
+        )
+    plain_cookies = decrypt_field(account.cookies)
+    valid, unb, message = validate_cookies(plain_cookies)
+    if not valid:
+        raise XianyuAccountError(f"Cookie 校验未通过：{message}")
+    account.status = "online"
+    account.paused_at = None
+    account.consecutive_failures = 0
+    account.last_error = None
     account.updated_at = now_utc()
     await db.flush()
     return account

@@ -14,6 +14,7 @@ import {
   importXianyuItemsAsTemplates,
   listItems,
   listOrders,
+  recoverAccount,
   summarizeXianyuItems,
   summarizeXianyuOrders,
   syncItems,
@@ -116,6 +117,10 @@ describe('xianyuService', () => {
       status: 'online',
       last_sync_at: null,
       last_error: null,
+      auto_sync_enabled: false,
+      auto_sync_interval_minutes: 120,
+      consecutive_failures: 0,
+      paused_at: null,
       created_at: '2026-07-01T12:00:00',
       updated_at: '2026-07-02T12:00:00',
     });
@@ -126,6 +131,57 @@ describe('xianyuService', () => {
     expect(account.nickname).toBe('new-name');
     expect(account.created_at).toBeInstanceOf(Date);
     expect(account.updated_at).toBeInstanceOf(Date);
+  });
+
+  it('updateAccount patches auto_sync config and normalizes paused_at', async () => {
+    setMockResponse('patch', '/api/xianyu/accounts/2', {
+      id: 2,
+      nickname: 'auto-account',
+      unb: '20002',
+      status: 'online',
+      last_sync_at: '2026-07-10T08:00:00',
+      last_error: null,
+      auto_sync_enabled: true,
+      auto_sync_interval_minutes: 90,
+      consecutive_failures: 0,
+      paused_at: null,
+      created_at: '2026-07-01T12:00:00',
+      updated_at: '2026-07-11T12:00:00',
+    });
+
+    const account = await updateAccount(2, { auto_sync_enabled: true, auto_sync_interval_minutes: 90 });
+
+    expect(getMockCalls('patch', '/api/xianyu/accounts/2')[0].body).toEqual({
+      auto_sync_enabled: true,
+      auto_sync_interval_minutes: 90,
+    });
+    expect(account.auto_sync_enabled).toBe(true);
+    expect(account.auto_sync_interval_minutes).toBe(90);
+    expect(account.last_sync_at).toBeInstanceOf(Date);
+  });
+
+  it('recoverAccount posts to recover endpoint and normalizes paused_at to undefined', async () => {
+    setMockResponse('post', '/api/xianyu/accounts/3/recover', {
+      id: 3,
+      nickname: 'paused-account',
+      unb: '30003',
+      status: 'online',
+      last_sync_at: '2026-07-10T10:00:00',
+      last_error: null,
+      auto_sync_enabled: true,
+      auto_sync_interval_minutes: 120,
+      consecutive_failures: 0,
+      paused_at: null,
+      created_at: '2026-07-01T12:00:00',
+      updated_at: '2026-07-11T12:00:00',
+    });
+
+    const account = await recoverAccount(3);
+
+    expect(getMockCalls('post', '/api/xianyu/accounts/3/recover')).toHaveLength(1);
+    expect(account.status).toBe('online');
+    expect(account.consecutive_failures).toBe(0);
+    expect(account.paused_at).toBeUndefined();
   });
 
   it('formatSyncResultMessage explains successful syncs with no new records', () => {

@@ -1,7 +1,7 @@
 """闲鱼账号与同步日志模型（第二阶段：闲鱼对接 & 订单同步）"""
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import DateTime, Float, Integer, String, ForeignKey, Text, UniqueConstraint, func
+from sqlalchemy import DateTime, Float, Integer, String, Boolean, ForeignKey, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import JSON
 
@@ -18,12 +18,23 @@ class XianyuAccount(Base):
     unb: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
     # 原始 Cookie 字符串（加密存储）
     cookies: Mapped[str] = mapped_column(Text, nullable=False)
-    # online / invalid / disabled
+    # online / invalid / disabled / paused（paused=熔断暂停，需人工恢复）
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="online", index=True)
     # 备注（如：账号对应的代理信息）
     proxy_config: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     last_sync_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     last_error: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    # P3 安全调度字段
+    auto_sync_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
+    auto_sync_interval_minutes: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=120, server_default="120"
+    )
+    consecutive_failures: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    paused_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 

@@ -376,7 +376,7 @@ export const DEFAULT_SETTINGS: Settings = {
 // ==================== 闲鱼账号与订单同步 ====================
 
 // 闲鱼账号状态
-export type XianyuAccountStatus = 'online' | 'invalid' | 'risk';
+export type XianyuAccountStatus = 'online' | 'invalid' | 'risk' | 'paused';
 
 // 闲鱼账号
 export interface XianyuAccount {
@@ -386,6 +386,11 @@ export interface XianyuAccount {
   status: XianyuAccountStatus;
   last_sync_at?: Date;
   last_error?: string;
+  // P3 安全调度字段
+  auto_sync_enabled: boolean;
+  auto_sync_interval_minutes: number;
+  consecutive_failures: number;
+  paused_at?: Date;
   created_at: Date;
   updated_at: Date;
 }

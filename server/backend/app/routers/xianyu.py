@@ -10,7 +10,11 @@ from ..schemas import (
     XianyuOrderOut,
 )
 from ..services.xianyu import account_service
-from ..services.xianyu.account_service import XianyuAccountError
+from ..services.xianyu.account_service import (
+    XianyuAccountError,
+    XianyuSyncPausedError,
+    XianyuSyncRateLimitedError,
+)
 from ..services.xianyu.cookiecloud_service import get_cookiecloud_config_status
 from ..services.xianyu.order_service import (
     SyncAlreadyRunningError,
@@ -84,6 +88,24 @@ async def test_account(account_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(404, str(e))
 
 
+@router.post("/accounts/{account_id}/recover", response_model=XianyuAccountOut)
+async def recover_account(account_id: int, db: AsyncSession = Depends(get_db)):
+    """从熔断暂停状态恢复。
+
+    对应设计文档 P3：暂停后必须人工更新 Cookie、通过只读校验并点击恢复。
+    前置条件由 account_service.recover_account 校验：
+    1. 账号自暂停后已更新过 Cookie；
+    2. 当前 Cookie 通过只读格式校验。
+    """
+    try:
+        account = await account_service.recover_account(db, account_id)
+        await db.commit()
+        return account
+    except XianyuAccountError as e:
+        status_code = 404 if str(e) == "闲鱼账号不存在" else 400
+        raise HTTPException(status_code, str(e))
+
+
 @router.post("/accounts/{account_id}/sync-orders", response_model=XianyuSyncResult)
 async def sync_orders(
     account_id: int,
@@ -92,12 +114,17 @@ async def sync_orders(
 ):
     """手动触发订单同步。拉取闲鱼订单并写入记账系统。"""
     try:
+        await account_service.ensure_manual_order_sync_allowed(db, account_id)
         result = await sync_orders_for_account(db, account_id, max_pages=max_pages)
         await db.commit()
         return result
+    except XianyuSyncRateLimitedError as e:
+        raise HTTPException(429, str(e))
+    except XianyuSyncPausedError as e:
+        raise HTTPException(409, str(e))
     except SyncAlreadyRunningError as e:
         raise HTTPException(409, str(e))
-    except ValueError as e:
+    except XianyuAccountError as e:
         raise HTTPException(404, str(e))
 
 
@@ -126,6 +153,8 @@ async def sync_items(
         result = await sync_items_for_account(db, account_id, max_pages=max_pages)
         await db.commit()
         return result
+    except XianyuSyncPausedError as e:
+        raise HTTPException(409, str(e))
     except ValueError as e:
         raise HTTPException(404, str(e))
 

@@ -2,10 +2,12 @@ import { useEffect, useState, useCallback } from 'react';
 import {
   Card, Table, Button, Space, Modal, Input, Form, message, Popconfirm,
   Tag, Alert, Descriptions, Empty, Tooltip, Result, Spin, Segmented,
+  Switch, InputNumber,
 } from 'antd';
 import {
   PlusOutlined, DeleteOutlined, ReloadOutlined, CloudSyncOutlined,
   CheckCircleOutlined, ApiOutlined, LinkOutlined, HistoryOutlined, SyncOutlined,
+  WarningOutlined, SafetyCertificateOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type { ColumnsType } from 'antd/es/table';
@@ -15,7 +17,7 @@ import {
   hasSyncedOrdersToView, summarizeXianyuOrders, filterXianyuOrdersByProjection,
   syncItems, listItems, formatItemSyncResultMessage, hasSyncedItemsToView,
   summarizeXianyuItems, filterXianyuItemsByTemplateProjection, getCookieCloudConfigStatus,
-  formatXianyuOrderProjectionSummary,
+  formatXianyuOrderProjectionSummary, recoverAccount,
 } from '@/services/xianyuService';
 import type { XianyuItemTemplateProjectionFilter, XianyuOrderProjectionFilter } from '@/services/xianyuService';
 import type {
@@ -33,13 +35,14 @@ const { Text } = { Text: (props: any) => <span {...props} /> };
 
 // 账号状态标签
 function StatusTag({ status }: { status: string }) {
-  const map: Record<string, { text: string; color: string }> = {
-    online: { text: '在线', color: 'green' },
-    invalid: { text: '失效', color: 'red' },
-    risk: { text: '风控', color: 'orange' },
+  const map: Record<string, { text: string; color: string; icon: React.ReactNode }> = {
+    online: { text: '在线', color: 'green', icon: <CheckCircleOutlined /> },
+    invalid: { text: '失效', color: 'red', icon: <WarningOutlined /> },
+    risk: { text: '风控', color: 'orange', icon: <WarningOutlined /> },
+    paused: { text: '已熔断', color: 'volcano', icon: <SafetyCertificateOutlined /> },
   };
-  const cfg = map[status] || { text: status, color: 'default' };
-  return <Tag color={cfg.color} icon={<CheckCircleOutlined />}>{cfg.text}</Tag>;
+  const cfg = map[status] || { text: status, color: 'default', icon: <CheckCircleOutlined /> };
+  return <Tag color={cfg.color} icon={cfg.icon}>{cfg.text}</Tag>;
 }
 
 export default function OrderSync() {
@@ -66,12 +69,20 @@ export default function OrderSync() {
   const [itemMirrors, setItemMirrors] = useState<XianyuItem[]>([]);
   const [itemTemplateFilter, setItemTemplateFilter] = useState<XianyuItemTemplateProjectionFilter>('all');
   const [itemLoading, setItemLoading] = useState(false);
+  // P3：自动同步交互状态
+  const [togglingId, setTogglingId] = useState<number | null>(null); // Switch loading
+  const [recoveringId, setRecoveringId] = useState<number | null>(null); // 恢复按钮 loading
+  const [editingInterval, setEditingInterval] = useState<Record<number, number>>({}); // 间隔输入中的值（未提交）
   const [form] = Form.useForm();
 
   const loadAccounts = useCallback(async () => {
     setLoading(true);
     try {
-      setAccounts(await listAccounts());
+      const fresh = await listAccounts();
+      setAccounts(fresh);
+      // 清除编辑中的间隔值，避免旧值覆盖新拉取的 API 数据
+      // （loadAccounts 仅在挂载/创建/删除/同步/出错回滚时调用，此时用最新值最合理）
+      setEditingInterval({});
     } catch (err) {
       message.error(err instanceof Error ? err.message : '加载账号失败');
     } finally {
@@ -221,6 +232,73 @@ export default function OrderSync() {
     }
   };
 
+  // P3：切换自动同步开关（乐观更新，避免 loadAccounts 闪烁）
+  const handleToggleAutoSync = async (id: number, enabled: boolean) => {
+    setTogglingId(id);
+    // 乐观更新本地状态
+    setAccounts((prev) =>
+      prev.map((a) => (a.id === id ? { ...a, auto_sync_enabled: enabled } : a))
+    );
+    try {
+      await updateAccount(id, { auto_sync_enabled: enabled });
+      message.success(enabled ? '已开启自动同步' : '已关闭自动同步');
+    } catch (err) {
+      // 回滚
+      message.error(err instanceof Error ? err.message : '更新失败');
+      loadAccounts();
+    } finally {
+      setTogglingId(null);
+    }
+  };
+
+  // P3：提交自动同步间隔（onBlur / onPressEnter 时调用）
+  const commitInterval = async (id: number) => {
+    const pending = editingInterval[id];
+    if (pending === undefined) return;
+    const clamped = Math.max(60, Math.min(1440, pending));
+    // 清除编辑中的值，切回已提交值
+    setEditingInterval((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    // 乐观更新本地状态（不用 loadAccounts 避免 InputNumber 失焦）
+    setAccounts((prev) =>
+      prev.map((a) =>
+        a.id === id ? { ...a, auto_sync_interval_minutes: clamped } : a
+      )
+    );
+    try {
+      await updateAccount(id, { auto_sync_interval_minutes: clamped });
+      message.success(`同步间隔已设为 ${clamped} 分钟`);
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '更新失败');
+      loadAccounts();
+    }
+  };
+
+  // P3：从熔断暂停恢复（需先更新 Cookie）
+  const handleRecover = async (id: number) => {
+    setRecoveringId(id);
+    try {
+      const recovered = await recoverAccount(id);
+      // 乐观更新本地状态
+      setAccounts((prev) =>
+        prev.map((a) => (a.id === id ? recovered : a))
+      );
+      const account = accounts.find((a) => a.id === id);
+      if (account?.auto_sync_enabled) {
+        message.success('账号已恢复，自动同步将在下个周期继续');
+      } else {
+        message.success('账号已恢复');
+      }
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '恢复失败');
+    } finally {
+      setRecoveringId(null);
+    }
+  };
+
   const columns: ColumnsType<XianyuAccount> = [
     {
       title: '账号', dataIndex: 'nickname', width: 160,
@@ -240,24 +318,94 @@ export default function OrderSync() {
       render: (v?: Date) => v ? dayjs(v).format('YYYY-MM-DD HH:mm') : <Text style={{ color: 'var(--color-text-tertiary)' }}>从未同步</Text>,
     },
     {
+      title: '自动同步', dataIndex: 'auto_sync_enabled', width: 200,
+      render: (enabled: boolean, r: XianyuAccount) => {
+        const isPaused = r.status === 'paused';
+        return (
+        <Space size={4} direction="vertical" style={{ lineHeight: 1.2 }}>
+          <Space size={4}>
+            <Switch
+              size="small"
+              checked={enabled}
+              loading={togglingId === r.id}
+              disabled={isPaused}
+              onChange={(checked) => handleToggleAutoSync(r.id, checked)}
+            />
+            <Text style={{ fontSize: 12, color: enabled ? undefined : 'var(--color-text-tertiary)' }}>
+              {enabled ? '已开启' : '关闭'}
+            </Text>
+          </Space>
+          {enabled && (
+            <Space size={2}>
+              <Text style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>每</Text>
+              <InputNumber
+                size="small"
+                style={{ width: 64 }}
+                min={60}
+                max={1440}
+                value={editingInterval[r.id] ?? r.auto_sync_interval_minutes}
+                disabled={isPaused}
+                onChange={(v) => {
+                  if (v !== null) {
+                    setEditingInterval((prev) => ({ ...prev, [r.id]: v }));
+                  }
+                }}
+                onBlur={() => commitInterval(r.id)}
+                onPressEnter={() => commitInterval(r.id)}
+              />
+              <Text style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>分钟</Text>
+            </Space>
+          )}
+          {enabled && r.consecutive_failures > 0 && (
+            <Tooltip title={`连续失败 ${r.consecutive_failures} 次，达到 3 次将熔断`}>
+              <Text style={{ fontSize: 11, color: 'var(--color-warning)' }}>
+                连续失败 {r.consecutive_failures}/3
+              </Text>
+            </Tooltip>
+          )}
+        </Space>
+        );
+      },
+    },
+    {
       title: '最近错误', dataIndex: 'last_error', ellipsis: true,
       render: (v?: string) => v ? (
         <Tooltip title={v}><Text type="danger" style={{ fontSize: 12 }}>{v}</Text></Tooltip>
       ) : <Text style={{ color: 'var(--color-text-tertiary)' }}>-</Text>,
     },
     {
-      title: '操作', width: 440, fixed: 'right',
-      render: (_: unknown, r: XianyuAccount) => (
+      title: '操作', width: 500, fixed: 'right',
+      render: (_: unknown, r: XianyuAccount) => {
+        const isPaused = r.status === 'paused';
+        return (
         <Space size={4} wrap>
           <Button
             type="primary" size="small" icon={<SyncOutlined />}
             loading={syncingId === r.id}
+            disabled={isPaused}
             onClick={() => handleSync(r.id)}
           >同步订单</Button>
+          {isPaused && (
+            <Popconfirm
+              title="恢复自动同步？"
+              description="需先更新该账号的 Cookie（暂停后更新），通过校验后才能恢复。"
+              onConfirm={() => handleRecover(r.id)}
+              disabled={recoveringId === r.id}
+            >
+              <Button
+                size="small"
+                type="primary"
+                ghost
+                icon={<SafetyCertificateOutlined />}
+                loading={recoveringId === r.id}
+              >恢复</Button>
+            </Popconfirm>
+          )}
           <Button
             size="small"
             icon={<ReloadOutlined />}
             loading={itemSyncingId === r.id}
+            disabled={isPaused}
             onClick={() => handleSyncItems(r.id)}
           >同步商品</Button>
           <Button size="small" icon={<ApiOutlined />} onClick={() => handleTest(r.id)}>校验</Button>
@@ -269,7 +417,8 @@ export default function OrderSync() {
             <Button size="small" danger icon={<DeleteOutlined />} />
           </Popconfirm>
         </Space>
-      ),
+        );
+      },
     },
   ];
 
@@ -334,6 +483,11 @@ export default function OrderSync() {
             同步按订单号去重，可安全重复执行。
             <br />
             <Text style={{ fontSize: 12 }}>
+              <SafetyCertificateOutlined /> 安全自动同步：在「自动同步」列逐账号开启后台定时同步（最短 60 分钟一次）。
+              遇到登录失效或风控响应会立即熔断暂停，需更新 Cookie 并通过校验后手动恢复，避免触发平台风控。
+            </Text>
+            <br />
+            <Text style={{ fontSize: 12 }}>
               <LinkOutlined /> 获取 Cookie：在浏览器登录闲鱼（goofish.com）后，打开开发者工具 → Network → 任意请求 → 复制完整 Cookie。
             </Text>
           </span>
@@ -362,6 +516,25 @@ export default function OrderSync() {
         />
       )}
 
+      {accounts.some((a) => a.status === 'paused') && (
+        <Alert
+          type="error"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="存在已熔断的账号"
+          description={
+            <span>
+              以下账号因登录失效、风控响应或连续 3 次未知失败被熔断暂停，自动同步已停止：
+              <Text strong>
+                {' '}{accounts.filter((a) => a.status === 'paused').map((a) => a.nickname).join('、')}
+              </Text>
+              。<br />
+              恢复步骤：先点击编辑按钮更新该账号的 Cookie（必须暂停后更新），再点击「恢复」按钮通过只读校验后解除暂停。
+            </span>
+          }
+        />
+      )}
+
       {lastSyncResult && (
         <Alert
           type={lastSyncResult.success ? 'success' : 'warning'}
@@ -387,7 +560,7 @@ export default function OrderSync() {
         loading={loading}
         pagination={false}
         locale={{ emptyText }}
-        scroll={{ x: 980 }}
+        scroll={{ x: 1280 }}
       />
 
       {lastItemSyncResult && (

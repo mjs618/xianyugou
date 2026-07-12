@@ -23,7 +23,11 @@ from ...utils.crypto import encrypt_field
 from ...utils.helpers import calc_warranty_end, now_utc
 from ..customer_service import create_customer, find_by_nickname
 from ..transaction_service import create_transaction
-from .account_service import get_plain_cookies, refresh_account_cookies_from_cookiecloud
+from .account_service import (
+    ensure_account_not_paused,
+    get_plain_cookies,
+    refresh_account_cookies_from_cookiecloud,
+)
 from .mtop_client import MtopClient, MtopError
 from .order_parser import (
     extract_buyer_nick,
@@ -47,6 +51,8 @@ ORDER_API_VERSION = "1.0"
 # 默认成本价（闲鱼订单不含成本，记账系统需手动填或用此默认值）
 DEFAULT_COST_PRICE = 0.0
 PROJECTABLE_NEW_TRANSACTION_STATUSES = {"pending", "completed", "aftersales"}
+# 连续未知失败达到此阈值即熔断暂停账号（对应设计文档 P3）
+PAUSE_FAILURE_THRESHOLD = 3
 
 
 class SyncAlreadyRunningError(RuntimeError):
@@ -221,6 +227,7 @@ async def _sync_orders_for_account_unlocked(
     account = await db.get(XianyuAccount, account_id)
     if account is None:
         raise ValueError("闲鱼账号不存在")
+    ensure_account_not_paused(account)
 
     plain_cookies = get_plain_cookies(account)
     mtop = MtopClient(plain_cookies)
@@ -228,6 +235,8 @@ async def _sync_orders_for_account_unlocked(
     created_count = 0
     skipped_count = 0
     error: Optional[str] = None
+    # 失败分类：None=成功；"auth_fail"/"risk"=立即熔断；"unknown"=计数熔断
+    failure_kind: Optional[str] = None
 
     try:
         fetched = await fetch_orders(mtop, max_pages=max_pages)
@@ -236,6 +245,8 @@ async def _sync_orders_for_account_unlocked(
             refreshed = await refresh_account_cookies_from_cookiecloud(db, account)
             if not refreshed:
                 error = account.last_error or str(e)
+                # CookieCloud 未能续期 → 登录态失效，立即熔断
+                failure_kind = "auth_fail"
             else:
                 try:
                     plain_cookies = get_plain_cookies(account)
@@ -243,16 +254,28 @@ async def _sync_orders_for_account_unlocked(
                     fetched = await fetch_orders(mtop, max_pages=max_pages)
                 except MtopError as retry_error:
                     error = str(retry_error)
-                    account.status = "risk" if retry_error.risk else "invalid"
                     account.last_error = error
-        else:
+                    if retry_error.risk:
+                        failure_kind = "risk"
+                    elif retry_error.auth_fail:
+                        failure_kind = "auth_fail"
+                    else:
+                        failure_kind = "unknown"
+        elif e.risk:
+            # 风控响应立即熔断，不自动恢复
             error = str(e)
-            account.status = "risk" if e.risk else "invalid"
             account.last_error = error
+            failure_kind = "risk"
+        else:
+            # 业务失败：计数熔断
+            error = str(e)
+            account.last_error = error
+            failure_kind = "unknown"
     except Exception as e:
+        # 网络/解析等未知异常：计数熔断，等待下一周期重试
         error = f"拉取异常: {e}"
-        account.status = "invalid"
         account.last_error = error
+        failure_kind = "unknown"
 
     if mtop.cookies_changed:
         account.cookies = encrypt_field(mtop.cookie_str)
@@ -321,9 +344,23 @@ async def _sync_orders_for_account_unlocked(
             logger.warning("写入订单 %s 失败: %s", order_no, e)
             skipped_count += 1
 
-    if error is None:
+    # 根据失败分类应用熔断策略（对应设计文档 P3）
+    if failure_kind is None:
+        # 成功：清零失败计数，恢复正常状态
         account.status = "online"
         account.last_error = None
+        account.consecutive_failures = 0
+    elif failure_kind in ("auth_fail", "risk"):
+        # 登录失效/风控：立即熔断，需人工更新 Cookie 并通过只读校验后恢复
+        account.status = "paused"
+        account.paused_at = now_utc()
+        account.consecutive_failures = 0
+    else:
+        # 未知失败：累计计数，达到阈值熔断；否则保留状态等待下一周期重试
+        account.consecutive_failures = (account.consecutive_failures or 0) + 1
+        if account.consecutive_failures >= PAUSE_FAILURE_THRESHOLD:
+            account.status = "paused"
+            account.paused_at = now_utc()
     account.last_sync_at = now_utc()
 
     # 记录同步日志

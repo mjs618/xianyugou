@@ -7,7 +7,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...models import ProductTemplate, XianyuAccount, XianyuItem
 from ...utils.crypto import encrypt_field
 from ...utils.helpers import now_utc
-from .account_service import get_plain_cookies, refresh_account_cookies_from_cookiecloud
+from .account_service import (
+    ensure_account_not_paused,
+    get_plain_cookies,
+    refresh_account_cookies_from_cookiecloud,
+)
 from .item_parser import (
     extract_image_url,
     extract_item_id,
@@ -116,6 +120,7 @@ async def sync_items_for_account(
     account = await db.get(XianyuAccount, account_id)
     if account is None:
         raise ValueError("闲鱼账号不存在")
+    ensure_account_not_paused(account)
 
     mtop = MtopClient(get_plain_cookies(account))
     fetched: list[dict] = []

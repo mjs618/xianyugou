@@ -14,6 +14,8 @@ class XianyuAccountCreate(BaseModel):
 class XianyuAccountUpdate(BaseModel):
     nickname: Optional[str] = None
     cookies: Optional[str] = None
+    auto_sync_enabled: Optional[bool] = None
+    auto_sync_interval_minutes: Optional[int] = Field(default=None, ge=60, le=1440)
 
 
 class XianyuAccountOut(ORMBase):
@@ -23,6 +25,10 @@ class XianyuAccountOut(ORMBase):
     status: str
     last_sync_at: Optional[datetime] = None
     last_error: Optional[str] = None
+    auto_sync_enabled: bool = False
+    auto_sync_interval_minutes: int = 120
+    consecutive_failures: int = 0
+    paused_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 

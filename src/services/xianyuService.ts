@@ -24,6 +24,7 @@ function normalizeAccount(a: any): XianyuAccount {
   return {
     ...a,
     last_sync_at: toDate(a.last_sync_at),
+    paused_at: toDate(a.paused_at),
     created_at: new Date(a.created_at),
     updated_at: new Date(a.updated_at),
   };
@@ -156,12 +157,23 @@ export async function createAccount(input: XianyuAccountInput): Promise<XianyuAc
   return normalizeAccount(a);
 }
 
-// 更新闲鱼账号（更新 Cookie 或昵称）
+// 更新闲鱼账号（更新 Cookie、昵称或自动同步配置）
 export async function updateAccount(
   id: number,
-  patch: { nickname?: string; cookies?: string }
+  patch: {
+    nickname?: string;
+    cookies?: string;
+    auto_sync_enabled?: boolean;
+    auto_sync_interval_minutes?: number;
+  }
 ): Promise<XianyuAccount> {
   const a = await apiClient.patch<any>(`/api/xianyu/accounts/${id}`, patch);
+  return normalizeAccount(a);
+}
+
+// 从熔断暂停状态恢复（需先更新 Cookie）
+export async function recoverAccount(id: number): Promise<XianyuAccount> {
+  const a = await apiClient.post<any>(`/api/xianyu/accounts/${id}/recover`);
   return normalizeAccount(a);
 }
 
