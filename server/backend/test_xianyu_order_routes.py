@@ -76,9 +76,12 @@ class XianyuOrderRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("COOKIE_SENTINEL", response.text)
 
     async def test_sync_orders_returns_conflict_when_account_sync_is_running(self):
-        with patch(
-            "app.routers.xianyu.sync_orders_for_account",
-            side_effect=SyncAlreadyRunningError("running"),
+        with (
+            patch("app.routers.xianyu.account_service.ensure_manual_order_sync_allowed"),
+            patch(
+                "app.routers.xianyu.sync_orders_for_account",
+                side_effect=SyncAlreadyRunningError("running"),
+            ),
         ):
             async with AsyncClient(
                 transport=ASGITransport(app=app, raise_app_exceptions=False),
