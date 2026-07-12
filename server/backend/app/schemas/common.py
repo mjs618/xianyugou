@@ -13,3 +13,4 @@ class HealthResponse(BaseModel):
     service: str = "xianyu-backend"
     time: str
     version: str = "1.0.0"
+    scheduler_running: bool = False

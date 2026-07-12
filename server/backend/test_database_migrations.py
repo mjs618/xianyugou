@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.database import Base
 from app import models  # noqa: F401
+from app.maintenance import database_schema
 from app.maintenance.database_schema import adopt_existing_database, require_current_schema
 
 
@@ -47,6 +48,129 @@ def test_adopt_existing_database_stamps_baseline_and_upgrades(tmp_path):
     )
     asyncio.run(require_current_schema(async_engine))
     asyncio.run(async_engine.dispose())
+
+
+def test_migrate_database_on_fresh_database(tmp_path):
+    """migrate 对全新数据库执行 upgrade 从头创建 schema。"""
+    from app.maintenance.database_schema import migrate_database
+
+    database = tmp_path / "fresh.db"
+    sync_url = f"sqlite:///{database.as_posix()}"
+
+    migrate_database(sync_url)
+
+    async_engine = create_async_engine(
+        sync_url.replace("sqlite:", "sqlite+aiosqlite:", 1)
+    )
+    asyncio.run(require_current_schema(async_engine))
+    asyncio.run(async_engine.dispose())
+
+
+def test_fresh_database_migration_does_not_create_backup(tmp_path, monkeypatch):
+    database = tmp_path / "fresh-no-backup.db"
+    sync_url = f"sqlite:///{database.as_posix()}"
+    monkeypatch.setattr(
+        database_schema,
+        "_create_pre_migration_backup",
+        lambda database_url: pytest.fail("fresh database must not be backed up"),
+        raising=False,
+    )
+
+    database_schema.migrate_database(sync_url)
+
+    current, head = database_schema.current_revision(sync_url)
+    assert current == head
+
+
+def test_migrate_database_on_existing_unversioned(tmp_path):
+    """migrate 对旧版无版本管理的数据库执行 adopt。"""
+    from app.maintenance.database_schema import migrate_database
+
+    database = tmp_path / "legacy.db"
+    sync_url = f"sqlite:///{database.as_posix()}"
+    engine = create_engine(sync_url)
+    Base.metadata.create_all(engine)
+    engine.dispose()
+
+    migrate_database(sync_url)
+
+    async_engine = create_async_engine(
+        sync_url.replace("sqlite:", "sqlite+aiosqlite:", 1)
+    )
+    asyncio.run(require_current_schema(async_engine))
+    asyncio.run(async_engine.dispose())
+
+
+def test_migrate_database_on_already_head_is_noop(tmp_path):
+    """migrate 对已在 head 的数据库是 no-op。"""
+    from app.maintenance.database_schema import migrate_database
+
+    database = tmp_path / "current.db"
+    sync_url = f"sqlite:///{database.as_posix()}"
+
+    # 先 upgrade 到 head
+    command.upgrade(migration_config(sync_url), "head")
+    # 再次 migrate 应该是 no-op（不抛异常）
+    migrate_database(sync_url)
+
+    async_engine = create_async_engine(
+        sync_url.replace("sqlite:", "sqlite+aiosqlite:", 1)
+    )
+    asyncio.run(require_current_schema(async_engine))
+    asyncio.run(async_engine.dispose())
+
+
+def test_existing_versioned_database_is_backed_up_before_upgrade(tmp_path, monkeypatch):
+    database = tmp_path / "old-version.db"
+    sync_url = f"sqlite:///{database.as_posix()}"
+    command.upgrade(migration_config(sync_url), "20260710_02")
+    events = []
+
+    monkeypatch.setattr(
+        database_schema,
+        "_create_pre_migration_backup",
+        lambda database_url: events.append(
+            ("backup", database_schema.current_revision(database_url)[0])
+        ),
+        raising=False,
+    )
+    original_upgrade = database_schema.command.upgrade
+
+    def tracked_upgrade(config, revision):
+        events.append(("upgrade", database_schema.current_revision(sync_url)[0]))
+        return original_upgrade(config, revision)
+
+    monkeypatch.setattr(database_schema.command, "upgrade", tracked_upgrade)
+
+    database_schema.migrate_database(sync_url)
+
+    assert events[:2] == [
+        ("backup", "20260710_02"),
+        ("upgrade", "20260710_02"),
+    ]
+    current, head = database_schema.current_revision(sync_url)
+    assert current == head
+
+
+def test_backup_failure_prevents_schema_upgrade(tmp_path, monkeypatch):
+    database = tmp_path / "backup-failure.db"
+    sync_url = f"sqlite:///{database.as_posix()}"
+    command.upgrade(migration_config(sync_url), "20260710_02")
+
+    def fail_backup(database_url):
+        raise RuntimeError("backup failed")
+
+    monkeypatch.setattr(
+        database_schema,
+        "_create_pre_migration_backup",
+        fail_backup,
+        raising=False,
+    )
+
+    with pytest.raises(RuntimeError, match="backup failed"):
+        database_schema.migrate_database(sync_url)
+
+    assert database_schema.current_revision(sync_url)[0] == "20260710_02"
 
 
 def test_adopt_rejects_database_with_missing_required_column(tmp_path):

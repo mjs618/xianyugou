@@ -9,6 +9,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code.
 COPY app ./app
+COPY entrypoint.sh ./
 
 # Persist database and encryption key under /app/data.
 RUN mkdir -p /app/data
@@ -18,4 +19,6 @@ EXPOSE 8000
 
 ENV DATABASE_URL="sqlite+aiosqlite:////app/data/xianyu.db"
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# 入口脚本先执行数据库迁移，再启动 uvicorn
+RUN chmod +x entrypoint.sh
+ENTRYPOINT ["./entrypoint.sh"]

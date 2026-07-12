@@ -3,6 +3,7 @@
 启动：cd server/backend && uvicorn app.main:app --reload --port 8000
 文档：http://localhost:8000/docs
 """
+import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
@@ -31,10 +32,13 @@ from .routers import (
     attachments,
 )
 
+# 配置 app.* 日志输出到控制台（uvicorn 默认只配置自己的 logger）
+logging.basicConfig(level=logging.INFO, format="%(levelname)-7s [%(name)s] %(message)s")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期：启动时建表 + 迁移加密存量敏感字段。"""
+    """应用生命周期：启动时建表 + 迁移加密存量敏感字段 + 启动自动同步调度器。"""
     _load_or_create_key()
     await init_db()
     # 存量明文敏感字段自动加密
@@ -43,7 +47,13 @@ async def lifespan(app: FastAPI):
     async with AsyncSessionLocal() as db:
         await migrate_encrypt_settings(db)
         await db.commit()
-    yield
+    # P3：启动安全自动同步调度器（默认 60 秒 tick）
+    from .services.sync_scheduler import scheduler as sync_scheduler
+    sync_scheduler.start()
+    try:
+        yield
+    finally:
+        await sync_scheduler.stop()
 
 
 app = FastAPI(
@@ -64,7 +74,11 @@ app.add_middleware(
 
 @app.get("/api/health", response_model=HealthResponse, tags=["system"])
 async def health():
-    return HealthResponse(time=datetime.now(timezone.utc).isoformat())
+    from .services.sync_scheduler import scheduler
+    return HealthResponse(
+        time=datetime.now(timezone.utc).isoformat(),
+        scheduler_running=scheduler.running,
+    )
 
 
 # 注册路由
