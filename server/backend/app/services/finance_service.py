@@ -7,17 +7,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Transaction, RebateRecord, Customer, OperatingExpense
 from ..utils.helpers import round2, now_utc
-
-
-def _month_range(date: datetime) -> tuple[datetime, datetime]:
-    """本月起止（含）。"""
-    start = date.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    # 下月 1 号 - 1 微秒
-    if date.month == 12:
-        end = start.replace(year=date.year + 1, month=1) - timedelta(microseconds=1)
-    else:
-        end = start.replace(month=date.month + 1) - timedelta(microseconds=1)
-    return start, end
+from .finance_calculations import (
+    build_daily_trend,
+    build_monthly_comparison,
+    build_overview,
+    build_product_profit_stats,
+    month_range,
+)
 
 
 async def get_finance_overview(db: AsyncSession, *, month: bool = True) -> dict:
@@ -45,34 +41,12 @@ async def get_finance_overview(db: AsyncSession, *, month: bool = True) -> dict:
         cur_expense = 0.0
         prev_expense = 0.0
 
-    total_income = round2(sum(t.sale_price for t in cur_trades))
-    total_cost = round2(sum(t.cost_price for t in cur_trades) + cur_expense)
-    total_profit = round2(total_income - total_cost)
-    profit_rate = round2(total_profit / total_income) if total_income > 0 else 0.0
-    prev_income = round2(sum(t.sale_price for t in prev_trades))
-    prev_cost = round2(sum(t.cost_price for t in prev_trades) + prev_expense)
-    prev_profit = round2(prev_income - prev_cost)
-    prev_count = len(prev_trades)
-
-    def _change(cur: float, prev: float) -> float:
-        if prev == 0:
-            return 1.0 if cur > 0 else 0.0
-        return round2((cur - prev) / prev)
-
-    return {
-        "totalIncome": total_income,
-        "totalCost": total_cost,
-        "totalProfit": total_profit,
-        "operatingExpense": cur_expense,
-        "profitRate": profit_rate,
-        "tradeCount": len(cur_trades),
-        "prevIncome": prev_income,
-        "prevProfit": prev_profit,
-        "prevTradeCount": prev_count,
-        "incomeChange": _change(total_income, prev_income),
-        "profitChange": _change(total_profit, prev_profit),
-        "tradeCountChange": _change(len(cur_trades), prev_count),
-    }
+    return build_overview(
+        cur_trades,
+        prev_trades,
+        cur_expense=cur_expense,
+        prev_expense=prev_expense,
+    )
 
 
 async def get_product_profit_stats(db: AsyncSession, start: Optional[datetime] = None, end: Optional[datetime] = None) -> list[dict]:
@@ -83,23 +57,7 @@ async def get_product_profit_stats(db: AsyncSession, start: Optional[datetime] =
     if end is not None:
         stmt = stmt.where(Transaction.trade_at <= end)
     trades = list((await db.execute(stmt)).scalars().all())
-    agg: dict[str, dict] = {}
-    for t in trades:
-        d = agg.setdefault(t.product_name, {"income": 0.0, "profit": 0.0, "count": 0})
-        d["income"] += t.sale_price
-        d["profit"] += t.profit
-        d["count"] += 1
-    result = []
-    for name, d in agg.items():
-        result.append({
-            "productName": name,
-            "totalIncome": round2(d["income"]),
-            "totalProfit": round2(d["profit"]),
-            "count": d["count"],
-            "profitRate": round2(d["profit"] / d["income"]) if d["income"] > 0 else 0.0,
-        })
-    result.sort(key=lambda x: x["totalProfit"], reverse=True)
-    return result
+    return build_product_profit_stats(trades)
 
 
 async def get_customer_value_stats(db: AsyncSession, limit: int = 100) -> list[dict]:
@@ -116,43 +74,6 @@ async def get_customer_value_stats(db: AsyncSession, limit: int = 100) -> list[d
         }
         for c in customers
     ]
-
-
-def _build_overview(
-    cur: list[Transaction],
-    prev: list[Transaction],
-    *,
-    cur_expense: float = 0.0,
-    prev_expense: float = 0.0,
-) -> dict:
-    """从两段交易列表构建 overview（复刻前端 buildOverview）。"""
-    total_income = round2(sum(t.sale_price for t in cur))
-    total_cost = round2(sum(t.cost_price for t in cur) + cur_expense)
-    total_profit = round2(total_income - total_cost)
-    prev_income = round2(sum(t.sale_price for t in prev))
-    prev_cost = round2(sum(t.cost_price for t in prev) + prev_expense)
-    prev_profit = round2(prev_income - prev_cost)
-    prev_count = len(prev)
-
-    def _change(c: float, p: float) -> float:
-        if p == 0:
-            return 1.0 if c > 0 else 0.0
-        return round2((c - p) / p)
-
-    return {
-        "totalIncome": total_income,
-        "totalCost": total_cost,
-        "totalProfit": total_profit,
-        "operatingExpense": cur_expense,
-        "profitRate": round2(total_profit / total_income) if total_income > 0 else 0.0,
-        "tradeCount": len(cur),
-        "prevIncome": prev_income,
-        "prevProfit": prev_profit,
-        "prevTradeCount": prev_count,
-        "incomeChange": _change(total_income, prev_income),
-        "profitChange": _change(total_profit, prev_profit),
-        "tradeCountChange": _change(len(cur), prev_count),
-    }
 
 
 async def _trades_between(db: AsyncSession, start: datetime, end: datetime) -> list[Transaction]:
@@ -195,7 +116,12 @@ async def get_finance_overview_by_range(db: AsyncSession, start: datetime, end: 
     prev = await _trades_between(db, prev_start, prev_end)
     cur_expense = await _sum_expenses_between(db, start, end)
     prev_expense = await _sum_expenses_between(db, prev_start, prev_end)
-    return _build_overview(cur, prev, cur_expense=cur_expense, prev_expense=prev_expense)
+    return build_overview(
+        cur,
+        prev,
+        cur_expense=cur_expense,
+        prev_expense=prev_expense,
+    )
 
 
 async def get_trend(db: AsyncSession, days: int = 30) -> list[dict]:
@@ -204,26 +130,7 @@ async def get_trend(db: AsyncSession, days: int = 30) -> list[dict]:
     start = (end - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
     trades = await _trades_between(db, start, end)
     expenses = await _expenses_between(db, start, end)
-    # 构建日期序列
-    series: list[str] = []
-    cur_date = start.replace(hour=0, minute=0, second=0, microsecond=0)
-    last_date = end.replace(hour=0, minute=0, second=0, microsecond=0)
-    while cur_date <= last_date:
-        series.append(cur_date.strftime("%Y-%m-%d"))
-        cur_date += timedelta(days=1)
-    bucket = {d: {"income": 0.0, "cost": 0.0, "profit": 0.0} for d in series}
-    for t in trades:
-        key = t.trade_at.strftime("%Y-%m-%d") if t.trade_at else None
-        if key and key in bucket:
-            bucket[key]["income"] += t.sale_price
-            bucket[key]["cost"] += t.cost_price
-            bucket[key]["profit"] += t.profit
-    for expense in expenses:
-        key = expense.occurred_at.strftime("%Y-%m-%d") if expense.occurred_at else None
-        if key and key in bucket:
-            bucket[key]["cost"] += expense.amount
-            bucket[key]["profit"] -= expense.amount
-    return [{"date": d, "income": round2(v["income"]), "cost": round2(v["cost"]), "profit": round2(v["profit"])} for d, v in zip(series, [bucket[d] for d in series])]
+    return build_daily_trend(trades, expenses, start, end)
 
 
 async def get_monthly_comparison(db: AsyncSession, months: int = 6) -> list[dict]:
@@ -241,49 +148,19 @@ async def get_monthly_comparison(db: AsyncSession, months: int = 6) -> list[dict
     start = datetime(y, m, 1)
     trades = await _trades_between(db, start, now)
     expenses = await _expenses_between(db, start, now)
-    bucket: dict[str, dict] = {}
-    keys_order: list[str] = []
-    cy, cm = y, m
-    for _ in range(months):
-        k = f"{cy:04d}-{cm:02d}"
-        bucket[k] = {"income": 0.0, "cost": 0.0, "profit": 0.0, "count": 0}
-        keys_order.append(k)
-        cm += 1
-        if cm > 12:
-            cm = 1
-            cy += 1
-    for t in trades:
-        if not t.trade_at:
-            continue
-        k = t.trade_at.strftime("%Y-%m")
-        if k in bucket:
-            bucket[k]["income"] += t.sale_price
-            bucket[k]["cost"] += t.cost_price
-            bucket[k]["profit"] += t.profit
-            bucket[k]["count"] += 1
-    for expense in expenses:
-        if not expense.occurred_at:
-            continue
-        k = expense.occurred_at.strftime("%Y-%m")
-        if k in bucket:
-            bucket[k]["cost"] += expense.amount
-            bucket[k]["profit"] -= expense.amount
-    return [
-        {
-            "month": f"{int(k.split('-')[1])}月",
-            "income": round2(bucket[k]["income"]),
-            "cost": round2(bucket[k]["cost"]),
-            "profit": round2(bucket[k]["profit"]),
-            "tradeCount": bucket[k]["count"],
-        }
-        for k in keys_order
-    ]
+    return build_monthly_comparison(
+        trades,
+        expenses,
+        start_year=y,
+        start_month=m,
+        months=months,
+    )
 
 
 async def get_new_customer_count(db: AsyncSession, date: Optional[datetime] = None) -> int:
     """本月新客户数（first_trade_at 在本月）。"""
     d = date or now_utc()
-    start, end = _month_range(d)
+    start, end = month_range(d)
     cnt = (
         await db.execute(
             select(func.count(Customer.id)).where(
