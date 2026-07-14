@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
-from ..schemas import TransactionOut
+from ..schemas import TransactionOut, WarrantyEndEarly, WarrantyExtend
 from ..services import warranty_service
 
 router = APIRouter(prefix="/api/warranty", tags=["warranty"])
@@ -39,13 +39,9 @@ async def all_warranty(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/{tx_id}/extend", response_model=TransactionOut)
-async def extend(tx_id: int, payload: dict = Body(...), db: AsyncSession = Depends(get_db)):
-    days = payload.get("days")
-    reason = payload.get("reason")
-    if not days or days <= 0:
-        raise HTTPException(400, "延长天数必须大于 0")
+async def extend(tx_id: int, payload: WarrantyExtend = Body(...), db: AsyncSession = Depends(get_db)):
     try:
-        t = await warranty_service.extend_warranty(db, tx_id, days, reason)
+        t = await warranty_service.extend_warranty(db, tx_id, payload.days, payload.reason)
         await db.commit()
         return t
     except ValueError as e:
@@ -53,8 +49,7 @@ async def extend(tx_id: int, payload: dict = Body(...), db: AsyncSession = Depen
 
 
 @router.post("/{tx_id}/end-early", response_model=TransactionOut)
-async def end_early(tx_id: int, payload: dict = Body(...), db: AsyncSession = Depends(get_db)):
-    reason = payload.get("reason")
+async def end_early(tx_id: int, payload: WarrantyEndEarly = Body(...), db: AsyncSession = Depends(get_db)):
     try:
         t = await warranty_service.end_warranty_early(db, tx_id)
         await db.commit()

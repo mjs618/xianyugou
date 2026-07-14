@@ -18,8 +18,8 @@ class SettingsError(ValueError):
     pass
 
 
-async def get_settings(db: AsyncSession, *, decrypt: bool = True) -> SettingsModel:
-    """获取单例设置。decrypt=False 时 smtp_pass 保持密文（导出场景）。"""
+async def get_settings(db: AsyncSession) -> SettingsModel:
+    """获取单例设置（smtp_pass 保持密文，明文场景用 get_settings_plain）。"""
     s = (await db.execute(select(SettingsModel).where(SettingsModel.id == 1))).scalar_one_or_none()
     if s is None:
         # 首次初始化默认设置
@@ -92,7 +92,7 @@ async def update_settings(db: AsyncSession, patch: dict[str, Any]) -> SettingsMo
 
 async def migrate_encrypt_settings(db: AsyncSession) -> bool:
     """存量明文 smtp_pass 自动加密，返回是否发生迁移。"""
-    s = await get_settings(db, decrypt=False)
+    s = await get_settings(db)
     if s.smtp_pass and not is_encrypted(s.smtp_pass):
         s.smtp_pass = encrypt_field(s.smtp_pass)
         await db.flush()

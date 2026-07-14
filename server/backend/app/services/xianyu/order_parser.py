@@ -97,8 +97,11 @@ def extract_product_name(order: dict) -> Optional[str]:
 
 
 def extract_item_id(order: dict) -> Optional[str]:
+    # 闲鱼订单响应中 itemId 实际位于 commonData（而非 itemVO，itemVO 只含 title/pic）。
+    # 兼容 itemVO 与顶层作为回退，覆盖历史与异常结构。
+    common = order.get("commonData")
     item_info = order.get("itemVO")
-    sources = (item_info, order) if isinstance(item_info, dict) else (order,)
+    sources = [s for s in (common, item_info, order) if isinstance(s, dict)]
     for source in sources:
         for key in ("itemId", "item_id", "id", "fishId", "auctionId", "itemID"):
             if source.get(key):

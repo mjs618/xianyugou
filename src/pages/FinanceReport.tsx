@@ -3,18 +3,18 @@ import { Card, Row, Col, DatePicker, Button, Table, Space, Segmented, message, T
 import { DeleteOutlined, ExportOutlined, FileExcelOutlined, PlusOutlined } from '@ant-design/icons';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell, Legend, BarChart, Bar } from 'recharts';
 import dayjs from 'dayjs';
-import { getFinanceOverviewByRange, getTrend, getProductProfitStats, getCustomerValueStats, getMonthlyComparison } from '@/services/financeService';
+import { getFinanceOverviewByRange, getTrend, getProductProfitStats, getCustomerValueStats, getMonthlyComparison, getChannelBreakdown } from '@/services/financeService';
 import { createExpense, deleteExpense, listExpenses } from '@/services/expenseService';
 import { listTransactions, listByDateRange } from '@/services/transactionService';
 import { getPendingTotal, getTotalPaid, listRebates, markPaid, cancelRebate, batchPay } from '@/services/rebateService';
 import { listAfterSales } from '@/services/afterSalesService';
 import { exportTransactionsCSV, downloadFile, exportFinanceReportExcel, downloadBlob } from '@/utils/export';
-import { formatMoney, formatPercent, formatMoneyCompact } from '@/utils/format';
+import { formatMoney, formatPercent, formatMoneyCompact, channelLabel } from '@/utils/format';
 import { formatDate } from '@/utils/date';
 import StatCard from '@/components/StatCard';
 import { IncomeIcon, ProfitIcon, TradeIcon, RebateIcon } from '@/components/RefinedIcons';
 import { useChartColors } from '@/hooks/useChartColors';
-import type { FinanceOverview, TrendPoint, ProductProfitStat, CustomerValueStat, MonthlyComparisonPoint, RebateRecord, AfterSales, OperatingExpense } from '@/types';
+import type { FinanceOverview, TrendPoint, ProductProfitStat, CustomerValueStat, MonthlyComparisonPoint, RebateRecord, AfterSales, OperatingExpense, ChannelBreakdownItem, ChannelType } from '@/types';
 
 const { RangePicker } = DatePicker;
 
@@ -34,6 +34,8 @@ export default function FinanceReport() {
   const [paidTotal, setPaidTotal] = useState(0);
   const [rangeType, setRangeType] = useState<RangeType>('month');
   const [customRange, setCustomRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
+  const [channelFilter, setChannelFilter] = useState<'all' | ChannelType>('all');
+  const [channelBreakdown, setChannelBreakdown] = useState<ChannelBreakdownItem[]>([]);
   const [selectedRebateKeys, setSelectedRebateKeys] = useState<number[]>([]);
   const [batchLoading, setBatchLoading] = useState(false);
   const [expenseModalOpen, setExpenseModalOpen] = useState(false);
@@ -44,7 +46,7 @@ export default function FinanceReport() {
 
   useEffect(() => {
     loadData();
-  }, [rangeType, customRange]);
+  }, [rangeType, customRange, channelFilter]);
 
   const getDateRange = (): [Date, Date] | undefined => {
     const now = dayjs();
@@ -72,17 +74,19 @@ export default function FinanceReport() {
       const range = getDateRange();
       // 概览跟随所选时间范围；自定义未选择时回退到本月
       const [rangeStart, rangeEnd] = range || [dayjs().startOf('month').toDate(), dayjs().endOf('month').toDate()];
-      const [ov, tr, mc, ps, cs, rb, pt, pd, as, ex] = await Promise.all([
-        getFinanceOverviewByRange(rangeStart, rangeEnd),
-        getTrend(30),
-        getMonthlyComparison(6),
-        getProductProfitStats(rangeStart, rangeEnd),
+      const channel = channelFilter === 'all' ? undefined : channelFilter;
+      const [ov, tr, mc, ps, cs, rb, pt, pd, as, ex, cb] = await Promise.all([
+        getFinanceOverviewByRange(rangeStart, rangeEnd, channel),
+        getTrend(30, channel),
+        getMonthlyComparison(6, channel),
+        getProductProfitStats(rangeStart, rangeEnd, channel),
         getCustomerValueStats(10),
         listRebates(),
         getPendingTotal(),
         getTotalPaid(),
         listAfterSales(),
         listExpenses(rangeStart, rangeEnd),
+        getChannelBreakdown(rangeStart, rangeEnd),
       ]);
       setOverview(ov);
       setTrend(tr);
@@ -94,6 +98,7 @@ export default function FinanceReport() {
       setPaidTotal(pd);
       setAfterSalesList(as);
       setExpenses(ex);
+      setChannelBreakdown(cb);
     } catch (err) {
       console.error('加载财务报表失败:', err);
       message.error(err instanceof Error ? err.message : '加载财务报表失败，请重试');
@@ -201,6 +206,9 @@ export default function FinanceReport() {
     { name: '退款', value: afterSalesList.filter((a) => a.solution_type === 'refund').length },
     { name: '其他', value: afterSalesList.filter((a) => a.solution_type === 'other').length },
   ].filter((d) => d.value > 0);
+  const channelData = channelBreakdown
+    .filter((d) => d.income > 0)
+    .map((d) => ({ name: channelLabel(d.channel), value: d.income, profit: d.profit, count: d.count }));
   const emptyText = <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />;
   const operatingExpenseTotal = overview?.operatingExpense ?? expenses.reduce((sum, item) => sum + item.amount, 0);
 
@@ -229,6 +237,16 @@ export default function FinanceReport() {
             {rangeType === 'custom' && (
               <RangePicker value={customRange} onChange={(v) => setCustomRange(v as any)} />
             )}
+            <Segmented
+              value={channelFilter}
+              onChange={(v) => setChannelFilter(v as 'all' | ChannelType)}
+              options={[
+                { label: '全部渠道', value: 'all' },
+                { label: '闲鱼', value: 'xianyu' },
+                { label: '微信', value: 'wechat' },
+                { label: '其他', value: 'other' },
+              ]}
+            />
             <Button icon={<PlusOutlined />} onClick={openExpenseModal}>记擦亮费</Button>
             <Button type="primary" icon={<FileExcelOutlined />} onClick={handleExportExcel}>导出 Excel</Button>
             <Button icon={<ExportOutlined />} onClick={handleExport}>导出明细</Button>
@@ -254,6 +272,35 @@ export default function FinanceReport() {
         </Row>
       </Card>
 
+      <Card title="销售渠道占比" style={{ marginTop: 16 }}>
+        {channelData.length > 0 ? (
+          <ResponsiveContainer width="100%" height={240}>
+            <PieChart>
+              <Pie data={channelData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
+                {channelData.map((_, idx) => (
+                  <Cell key={idx} fill={chartColors.pieColors[idx % chartColors.pieColors.length]} />
+                ))}
+              </Pie>
+              <Legend />
+              <Tooltip
+                formatter={(v: number, name: string) => {
+                  const item = channelData.find((d) => d.name === name);
+                  return [`${formatMoney(v)}（利润 ${formatMoney(item?.profit || 0)} · ${item?.count || 0} 笔）`, name];
+                }}
+                contentStyle={{
+                  background: chartColors.tooltipBg,
+                  color: chartColors.tooltipText,
+                  border: `1px solid ${chartColors.tooltipBorder}`,
+                  borderRadius: 6,
+                }}
+              />
+            </PieChart>
+          </ResponsiveContainer>
+        ) : (
+          <div style={{ textAlign: 'center', padding: 40, color: 'var(--color-text-secondary)' }}>暂无数据</div>
+        )}
+      </Card>
+
       <Card
         title="运营支出明细"
         style={{ marginTop: 16 }}
@@ -265,11 +312,13 @@ export default function FinanceReport() {
           size="small"
           pagination={{ pageSize: 8 }}
           locale={{ emptyText }}
+          className="expense-detail-table"
+          scroll={{ x: 700 }}
           columns={[
             { title: '类型', dataIndex: 'category', width: 120, render: (v: string) => <Tag color={v === '擦亮' ? 'orange' : 'default'}>{v}</Tag> },
             { title: '金额', dataIndex: 'amount', width: 120, render: (v: number) => <span style={{ color: 'var(--color-danger)', fontWeight: 600 }}>{formatMoney(v)}</span>, align: 'right' as const },
             { title: '发生时间', dataIndex: 'occurred_at', width: 160, render: (v: Date) => formatDate(v) },
-            { title: '备注', dataIndex: 'notes', ellipsis: true, render: (v?: string) => v || '-' },
+            { title: '备注', dataIndex: 'notes', width: 200, ellipsis: true, render: (v?: string) => v || '-' },
             {
               title: '操作',
               width: 80,
@@ -357,6 +406,7 @@ export default function FinanceReport() {
                 { title: '商品', dataIndex: 'productName', ellipsis: true },
                 { title: '笔数', dataIndex: 'count', width: 60, align: 'center' as const },
                 { title: '收入', dataIndex: 'totalIncome', width: 100, render: (v: number) => formatMoney(v), align: 'right' as const },
+                { title: '成本', dataIndex: 'totalCost', width: 100, render: (v: number) => formatMoney(v), align: 'right' as const },
                 { title: '利润', dataIndex: 'totalProfit', width: 100, render: (v: number) => <span style={{ color: 'var(--color-success)' }}>{formatMoney(v)}</span>, align: 'right' as const },
                 { title: '利润率', dataIndex: 'profitRate', width: 80, render: (v: number) => formatPercent(v), align: 'right' as const },
               ]}

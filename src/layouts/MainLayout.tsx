@@ -24,6 +24,7 @@ import GlobalSearch, { invalidateSearchCache } from '@/components/GlobalSearch';
 import NotificationCenter from '@/components/NotificationCenter';
 import { getNavigationBadgeCount } from '@/utils/navigationBadges';
 import { buildLayoutMenuItems } from '@/utils/layoutNavigation';
+import { REMINDER_CHECK_INTERVAL_MS, SCROLL_TOP_THRESHOLD } from '@/config/constants';
 
 const { Sider, Header, Content } = Layout;
 const { useBreakpoint } = Grid;
@@ -71,7 +72,7 @@ export default function MainLayout() {
     runAllReminderChecks().then(() => refreshAll());
     const timer = setInterval(() => {
       runAllReminderChecks().then(() => refreshAll());
-    }, 10 * 60 * 1000);
+    }, REMINDER_CHECK_INTERVAL_MS);
     return () => clearInterval(timer);
   }, [refreshAll]);
 
@@ -85,7 +86,7 @@ export default function MainLayout() {
 
   // 滚动监听 - 控制回到顶部按钮
   const handleScroll = () => {
-    setShowScrollTop(window.scrollY > 400);
+    setShowScrollTop(window.scrollY > SCROLL_TOP_THRESHOLD);
   };
   useEffect(() => {
     window.addEventListener('scroll', handleScroll, { passive: true });

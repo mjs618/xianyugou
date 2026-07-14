@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Select, Tag } from 'antd';
+import { Select, Tag, message } from 'antd';
 import { searchCustomers, getRecentCustomers } from '@/services/customerService';
 import type { Customer } from '@/types';
 
@@ -17,9 +17,14 @@ export default function CustomerSelect({ value, onChange, placeholder = '搜索�
 
   useEffect(() => {
     // 初始加载最近客户
-    getRecentCustomers(20).then((list) => {
-      setOptions(list.filter((c) => c.id !== excludeId));
-    });
+    getRecentCustomers(20)
+      .then((list) => {
+        setOptions(list.filter((c) => c.id !== excludeId));
+      })
+      .catch((err: unknown) => {
+        console.error('加载最近客户失败:', err);
+        message.error('加载客户列表失败，请重试');
+      });
   }, [excludeId]);
 
   const handleSearch = async (keyword: string) => {

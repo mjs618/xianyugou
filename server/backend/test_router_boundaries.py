@@ -23,6 +23,7 @@ EXPECTED_ROUTES = {
     ("GET", "/api/finance/trend"),
     ("GET", "/api/finance/monthly-comparison"),
     ("GET", "/api/finance/new-customer-count"),
+    ("GET", "/api/finance/channel-breakdown"),
     ("GET", "/api/expenses"),
     ("POST", "/api/expenses"),
     ("PATCH", "/api/expenses/{expense_id}"),

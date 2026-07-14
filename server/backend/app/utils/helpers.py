@@ -1,6 +1,9 @@
 """通用工具：日期解析、数值精度、默认设置"""
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class ConcurrencyError(Exception):
@@ -28,7 +31,11 @@ def to_aware(dt: Optional[datetime]) -> Optional[datetime]:
 
 
 def parse_date(value: Any) -> Optional[datetime]:
-    """宽松解析日期：支持 datetime / ISO 字符串 / epoch(ms) / None"""
+    """宽松解析日期：支持 datetime / ISO 字符串 / epoch(ms) / None。
+
+    无法解析时返回 None 并记录 warning，便于上游排查脏数据。
+    None 与空字符串视为合法的"无值"输入，不记录日志。
+    """
     if value is None or value == "":
         return None
     if isinstance(value, datetime):
@@ -48,6 +55,7 @@ def parse_date(value: Any) -> Optional[datetime]:
         # 尝试纯数字时间戳
         if s.isdigit():
             return datetime.fromtimestamp(int(s) / 1000.0, timezone.utc).replace(tzinfo=None)
+    logger.warning("parse_date 无法解析日期值: %r (type=%s)", value, type(value).__name__)
     return None
 
 

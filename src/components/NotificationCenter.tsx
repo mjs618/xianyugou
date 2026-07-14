@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Badge, Button, Dropdown, Empty, List } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -8,6 +8,8 @@ import {
   GiftOutlined,
   UserSwitchOutlined,
   MailOutlined,
+  WarningOutlined,
+  CheckCircleOutlined,
 } from '@ant-design/icons';
 import { listNotifications, markAllAsRead, markAsRead } from '@/services/notificationService';
 import { useAppStore } from '@/store/useAppStore';
@@ -22,18 +24,27 @@ const notifTypeMap: Record<string, { icon: React.ReactNode; color: string; bg: s
   rebate_pending: { icon: <GiftOutlined />, color: 'var(--color-success)', bg: 'var(--color-success-light)' },
   customer_recall: { icon: <UserSwitchOutlined />, color: 'var(--color-info)', bg: 'var(--color-info-light)' },
   mail_alert: { icon: <MailOutlined />, color: 'var(--color-danger)', bg: 'var(--color-danger-light)' },
+  account_paused: { icon: <WarningOutlined />, color: 'var(--color-danger)', bg: 'var(--color-danger-light)' },
+  account_recovered: { icon: <CheckCircleOutlined />, color: 'var(--color-success)', bg: 'var(--color-success-light)' },
 };
+
+// P1-5 修复：轮询退避常量与计算函数抽到 utils，便于单测（无 JSX 依赖）
+import {
+  BASE_INTERVAL as POLLING_BASE_INTERVAL,
+  MIN_INTERVAL as POLLING_MIN_INTERVAL,
+  computeNextInterval,
+} from '@/utils/notificationPolling';
 
 export default function NotificationCenter({ isMobile }: { isMobile: boolean }) {
   const navigate = useNavigate();
-  const { unreadCount, refreshAll } = useAppStore();
+  const { unreadCount, refreshAll, loadNotifications: refreshBadgeCount } = useAppStore();
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationRecord[]>([]);
 
-  const loadNotifications = async () => {
+  const loadNotifications = useCallback(async () => {
     const list = await listNotifications(20);
     setNotifications(list);
-  };
+  }, []);
 
   const handleNotifClick = async (n: NotificationRecord) => {
     await markAsRead(n.id!);
@@ -43,6 +54,62 @@ export default function NotificationCenter({ isMobile }: { isMobile: boolean }) 
     const target = getNotificationTarget(n);
     if (target) navigate(target);
   };
+
+  // P1-5 修复：通知轮询指数退避
+  // - 面板打开或上次有未读：30s 快速刷新
+  // - 面板关闭且无未读：60s → 90s → 135s → 202s → 300s 缓步退避
+  // - 请求失败：每次退避翻倍，封顶 300s
+  // - 状态变更（打开/关闭面板）：立即触发一次刷新并重置退避
+  // - 标记已读由 handleNotifClick 手动触发刷新，下次 tick 时根据最新 unreadCount 调整间隔
+  // 用 ref 同步最新状态，避免 unreadCount 变化频繁重启 effect
+  const unreadCountRef = useRef(unreadCount);
+  const notifOpenRef = useRef(notifOpen);
+  useEffect(() => { unreadCountRef.current = unreadCount; }, [unreadCount]);
+  useEffect(() => { notifOpenRef.current = notifOpen; }, [notifOpen]);
+
+  // 当前轮询间隔（ref 让递归 tick 能读取/更新最新值）
+  const currentIntervalRef = useRef<number>(POLLING_BASE_INTERVAL);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    let cancelled = false;
+
+    // 状态变更（打开/关闭面板）时重置为快速间隔，立即触发一次刷新
+    currentIntervalRef.current = notifOpen ? POLLING_MIN_INTERVAL : POLLING_BASE_INTERVAL;
+
+    const tick = async () => {
+      if (cancelled) return;
+      let failed = false;
+      try {
+        await refreshBadgeCount();
+        if (notifOpenRef.current) {
+          await loadNotifications();
+        }
+      } catch {
+        failed = true;
+      }
+      if (!cancelled) {
+        currentIntervalRef.current = computeNextInterval(
+          currentIntervalRef.current,
+          unreadCountRef.current > 0,
+          notifOpenRef.current,
+          failed
+        );
+        timer = setTimeout(tick, currentIntervalRef.current);
+      }
+    };
+
+    // 状态变化时立即触发一次（延迟 0ms），随后按 currentIntervalRef 递归调度
+    timer = setTimeout(tick, 0);
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+    // 仅依赖 notifOpen 触发重启；unreadCount 通过 ref 同步避免频繁重启
+    // refreshBadgeCount / loadNotifications 是 zustand 稳定引用，不引起重启
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notifOpen, refreshBadgeCount, loadNotifications]);
 
   const notifContent = (
     <div style={{ width: isMobile ? 300 : 380, background: 'var(--color-surface)', borderRadius: 8, boxShadow: '0 6px 16px rgba(0,0,0,0.08)' }}>

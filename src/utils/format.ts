@@ -1,3 +1,16 @@
+// 销售渠道中文标签（xianyu/wechat/other → 闲鱼/微信/其他）
+export const channelLabel = (channel: string): string => {
+  const map: Record<string, string> = { xianyu: '闲鱼', wechat: '微信', other: '其他' };
+  return map[channel] || channel;
+};
+
+// 渠道标签颜色（闲鱼=蓝/微信=绿/其他=灰），供 Tag 组件 color 属性使用
+export const channelColorMap: Record<string, string> = {
+  xianyu: 'blue',
+  wechat: 'green',
+  other: 'default',
+};
+
 // 金额格式化
 export const formatMoney = (value: number, withSymbol = true): string => {
   const fixed = Number.isFinite(value) ? value : 0;

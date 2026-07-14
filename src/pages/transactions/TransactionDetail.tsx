@@ -10,9 +10,10 @@ import { extendWarranty, endWarrantyEarly, getWarrantyExtensions } from '@/servi
 import { getRebateByTransaction } from '@/services/rebateService';
 import WarrantyTag from '@/components/WarrantyTag';
 import AttachmentUpload from '@/components/AttachmentUpload';
-import { formatMoney } from '@/utils/format';
+import { formatMoney, channelLabel } from '@/utils/format';
 import { formatDate, formatDateTime } from '@/utils/date';
 import { canManageWarranty, getWarrantyStartLabel } from '@/utils/warranty';
+import { getErrorMessage, isValidationError } from '@/utils/error';
 import { useAppStore } from '@/store/useAppStore';
 import type { Transaction, Customer, AfterSales, WarrantyExtension, RebateRecord, TransactionStatus } from '@/types';
 
@@ -136,10 +137,10 @@ export default function TransactionDetail() {
       extendForm.resetFields();
       refreshAll();
       loadData();
-    } catch (err: any) {
-      if (err?.errorFields) return; // 表单校验错误
+    } catch (err: unknown) {
+      if (isValidationError(err)) return; // 表单校验错误
       console.error('延长质保失败:', err);
-      message.error(err instanceof Error ? err.message : '延长质保失败，请重试');
+      message.error(getErrorMessage(err, '延长质保失败，请重试'));
     }
   };
 
@@ -186,7 +187,14 @@ export default function TransactionDetail() {
     >
       <Descriptions title="基本信息" bordered column={{ xs: 1, sm: 2 }} size="small">
         <Descriptions.Item label="商品名称">{transaction.product_name}</Descriptions.Item>
-        <Descriptions.Item label="闲鱼订单号">{transaction.xianyu_order_no || '-'}</Descriptions.Item>
+        <Descriptions.Item label="销售渠道">
+          <Tag color={transaction.channel === 'xianyu' ? 'blue' : transaction.channel === 'wechat' ? 'green' : 'default'}>
+            {channelLabel(transaction.channel)}
+          </Tag>
+        </Descriptions.Item>
+        <Descriptions.Item label={transaction.channel === 'xianyu' ? '闲鱼订单号' : '订单号'}>
+          {transaction.xianyu_order_no || '-'}
+        </Descriptions.Item>
         <Descriptions.Item label="售价">{formatMoney(transaction.sale_price)}</Descriptions.Item>
         <Descriptions.Item label="成本">{formatMoney(transaction.cost_price)}</Descriptions.Item>
         <Descriptions.Item label="利润">

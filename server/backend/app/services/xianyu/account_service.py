@@ -1,6 +1,7 @@
 """闲鱼账号服务 - CRUD、Cookie 加密、校验、触发订单同步。"""
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 from typing import Optional
 import httpx
@@ -26,6 +27,8 @@ class XianyuSyncRateLimitedError(XianyuAccountError):
     pass
 
 
+logger = logging.getLogger(__name__)
+
 MIN_MANUAL_SYNC_INTERVAL_MINUTES = 60
 
 
@@ -40,6 +43,9 @@ async def ensure_manual_order_sync_allowed(
     account = await get_account(db, account_id)
     if account is None:
         raise XianyuAccountError("闲鱼账号不存在")
+    # P2-3 软删除：已删除账号禁止同步
+    if account.deleted_at is not None:
+        raise XianyuAccountError("闲鱼账号已删除")
     ensure_account_not_paused(account)
     if account.last_sync_at is not None:
         earliest_retry = account.last_sync_at + timedelta(
@@ -57,7 +63,12 @@ def _mask(account: XianyuAccount) -> XianyuAccount:
 
 
 async def list_accounts(db: AsyncSession) -> list[XianyuAccount]:
-    stmt = select(XianyuAccount).order_by(XianyuAccount.created_at.desc())
+    # P2-3 软删除：列表只返回未删除的账号
+    stmt = (
+        select(XianyuAccount)
+        .where(XianyuAccount.deleted_at.is_(None))
+        .order_by(XianyuAccount.created_at.desc())
+    )
     return list((await db.execute(stmt)).scalars().all())
 
 
@@ -89,6 +100,9 @@ async def update_account(db: AsyncSession, account_id: int, patch: dict) -> Xian
     account = await get_account(db, account_id)
     if account is None:
         raise XianyuAccountError("闲鱼账号不存在")
+    # P2-3 软删除：已删除账号禁止修改
+    if account.deleted_at is not None:
+        raise XianyuAccountError("闲鱼账号已删除，无法修改")
     if "nickname" in patch and patch["nickname"] is not None:
         account.nickname = patch["nickname"].strip()
     if "cookies" in patch and patch["cookies"]:
@@ -127,6 +141,9 @@ async def recover_account(db: AsyncSession, account_id: int) -> XianyuAccount:
     account = await get_account(db, account_id)
     if account is None:
         raise XianyuAccountError("闲鱼账号不存在")
+    # P2-3 软删除：已删除账号禁止恢复
+    if account.deleted_at is not None:
+        raise XianyuAccountError("闲鱼账号已删除")
     if account.status != "paused":
         raise XianyuAccountError("账号未处于暂停状态，无需恢复")
     if account.paused_at is not None and account.updated_at <= account.paused_at:
@@ -142,15 +159,35 @@ async def recover_account(db: AsyncSession, account_id: int) -> XianyuAccount:
     account.consecutive_failures = 0
     account.last_error = None
     account.updated_at = now_utc()
+    from ..notification_service import create_account_recovered_notification
+    try:
+        await create_account_recovered_notification(db, account_id, account.nickname)
+    except Exception as notify_err:
+        # 通知创建失败不应阻断账号恢复，仅记录日志
+        logger.warning("创建账号恢复通知失败（账号 %s）: %s", account_id, notify_err)
     await db.flush()
     return account
 
 
 async def delete_account(db: AsyncSession, account_id: int) -> None:
+    """软删除账号：标记 deleted_at，保留关联数据可追溯。
+
+    硬删除会破坏 XianyuOrder / XianyuSyncLog / XianyuItem 等外键关系，
+    软删除既保留历史数据又使账号在列表中不可见。
+    """
     account = await get_account(db, account_id)
     if account is None:
         return
-    await db.delete(account)
+    if account.deleted_at is not None:
+        # 已软删除，幂等返回
+        return
+    account.deleted_at = now_utc()
+    account.status = "disabled"
+    await db.flush()
+    # P2-2 修复：清理该账号的同步锁缓存，避免字典泄漏
+    # 用局部 import 避免循环导入（order_service 已 import account_service）
+    from .order_service import release_sync_lock
+    release_sync_lock(account_id)
 
 
 async def test_account(db: AsyncSession, account_id: int) -> dict:
@@ -158,6 +195,9 @@ async def test_account(db: AsyncSession, account_id: int) -> dict:
     account = await get_account(db, account_id)
     if account is None:
         raise XianyuAccountError("闲鱼账号不存在")
+    # P2-3 软删除：已删除账号禁止测试
+    if account.deleted_at is not None:
+        raise XianyuAccountError("闲鱼账号已删除")
     plain_cookies = decrypt_field(account.cookies)
     valid, unb, message = validate_cookies(plain_cookies)
     return {"valid": valid, "unb": unb or account.unb, "message": message}

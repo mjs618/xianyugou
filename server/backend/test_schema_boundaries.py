@@ -47,6 +47,23 @@ EXPECTED_EXPORTS = {
     "XianyuOrderOut",
     "MessageResponse",
     "HealthResponse",
+    "TokenStatus",
+    "VerifyTokenRequest",
+    "VerifyTokenResponse",
+    "AuthError",
+    "AccountMetrics",
+    "BackupMetrics",
+    "MetricsResponse",
+    "SyncMetrics",
+    "CustomerTagCreate",
+    "CustomerTagsUpdate",
+    "MailRecordCreate",
+    "WarrantyExtend",
+    "WarrantyEndEarly",
+    "BackupInfo",
+    "BackupListResponse",
+    "RestoreRequest",
+    "RestoreResponse",
 }
 
 EXPECTED_MODULES = {
@@ -62,6 +79,14 @@ EXPECTED_MODULES = {
     "AttachmentOut": "app.schemas.attachments",
     "XianyuAccountOut": "app.schemas.xianyu",
     "HealthResponse": "app.schemas.common",
+    "TokenStatus": "app.schemas.auth",
+    "VerifyTokenRequest": "app.schemas.auth",
+    "VerifyTokenResponse": "app.schemas.auth",
+    "AuthError": "app.schemas.auth",
+    "AccountMetrics": "app.schemas.metrics",
+    "BackupMetrics": "app.schemas.metrics",
+    "MetricsResponse": "app.schemas.metrics",
+    "SyncMetrics": "app.schemas.metrics",
 }
 
 

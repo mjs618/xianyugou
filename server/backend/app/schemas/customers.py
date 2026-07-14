@@ -31,8 +31,12 @@ class CustomerCreate(BaseModel):
 
 
 class CustomerUpdate(BaseModel):
+    """更新客户字段。expected_version 由路由层 pop 出来传给 service 用于乐观并发控制。"""
+    model_config = {"extra": "allow"}
+
     xianyu_nickname: Optional[str] = None
     contact_info: Optional[str] = None
     notes: Optional[str] = None
     is_blacklist: Optional[bool] = None
     tags: Optional[List[str]] = None
+    expected_version: Optional[int] = None

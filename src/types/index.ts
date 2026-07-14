@@ -9,6 +9,9 @@ export type TransactionStatus = 'pending' | 'completed' | 'aftersales' | 'closed
 // 来源类型
 export type SourceType = 'direct' | 'introduced' | 'repeat';
 
+// 销售渠道（与 source_type 正交：在哪个平台成交）
+export type ChannelType = 'xianyu' | 'wechat' | 'other';
+
 // 售后状态
 export type AfterSalesStatus = 'pending' | 'processing' | 'resolved' | 'closed';
 
@@ -27,7 +30,9 @@ export type NotificationType =
   | 'aftersales_pending'
   | 'rebate_pending'
   | 'customer_recall'
-  | 'mail_alert';
+  | 'mail_alert'
+  | 'account_paused'
+  | 'account_recovered';
 
 // 通知状态
 export type NotificationStatus = 'unread' | 'read' | 'dismissed';
@@ -57,6 +62,8 @@ export interface Customer {
 export interface Transaction {
   id?: number;
   customer_id: number;
+  /** 后端 list 接口内联返回的客户昵称（仅查询结果中出现，写入时不传） */
+  customer_name?: string;
   xianyu_order_no?: string;
   product_name: string;
   product_template_id?: number;
@@ -69,6 +76,7 @@ export interface Transaction {
   warranty_end?: Date;
   warranty_days: number;
   source_type: SourceType;
+  channel: ChannelType;
   source_customer_id?: number;
   notes?: string;
   attachments: string[];
@@ -303,11 +311,21 @@ export interface MonthlyComparisonPoint {
   tradeCount: number;  // 交易笔数
 }
 
+// 渠道占比数据点（财务报表按销售渠道拆分）
+export interface ChannelBreakdownItem {
+  channel: ChannelType;
+  income: number;
+  cost: number;
+  profit: number;
+  count: number;
+}
+
 // 商品利润统计
 export interface ProductProfitStat {
   productName: string;
   totalProfit: number;
   totalIncome: number;
+  totalCost: number;
   count: number;
   profitRate: number;
 }
@@ -344,6 +362,7 @@ export interface TransactionInput {
   status: TransactionStatus;
   warranty_days: number;
   source_type: SourceType;
+  channel: ChannelType;
   source_customer_id?: number;
   notes?: string;
   attachments?: string[];

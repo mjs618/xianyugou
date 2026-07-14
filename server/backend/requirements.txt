@@ -12,3 +12,4 @@ cryptography==43.0.1
 python-multipart==0.0.12
 httpx==0.27.2
 alembic==1.13.2
+slowapi==0.1.9           # P1-1 速率限制，防 API 暴力枚举/爬取

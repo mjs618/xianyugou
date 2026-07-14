@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Upload, Button, message, Space, Modal, Empty } from 'antd';
 import { PlusOutlined, DeleteOutlined, PaperClipOutlined } from '@ant-design/icons';
 import { addAttachment, deleteAttachment, getAttachmentContentUrl, getAttachments, MAX_ATTACHMENT_SIZE, ACCEPTED_IMAGE_TYPES } from '@/services/attachmentService';
+import { getErrorMessage } from '@/utils/error';
 import type { Attachment } from '@/types';
 
 interface AttachmentUploadProps {
@@ -60,8 +61,8 @@ export default function AttachmentUpload({ value = [], onChange, disabled, maxCo
       const nextIds = [...value, String(att.id)];
       onChange?.(nextIds);
       message.success(`「${file.name}」已上传`);
-    } catch (err: any) {
-      message.error(err?.message || '上传失败');
+    } catch (err: unknown) {
+      message.error(getErrorMessage(err, '上传失败'));
     } finally {
       setUploading(false);
     }

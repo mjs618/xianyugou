@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
+import DOMPurify from 'dompurify';
 import { Card, Tabs, Form, Input, Button, Row, Col, Alert, Space, message, Tag, Divider, Typography, Select, Table, Popconfirm, Tooltip } from 'antd';
 import { SendOutlined, ReloadOutlined, CopyOutlined, CheckCircleOutlined, CloseCircleOutlined, MailOutlined, DeleteOutlined, ThunderboltOutlined, HistoryOutlined, SnippetsOutlined } from '@ant-design/icons';
 import { checkMailServer, sendDeliveryMail, buildDeliveryMail, parseDeliveryText, sendBatchDeliveryMail, type DeliveryInfo, type BatchResult } from '@/services/mailService';
 import { listMailRecords, deleteMailRecord, clearMailRecords } from '@/services/mailRecordService';
 import { searchCustomers } from '@/services/customerService';
 import type { MailRecord, Customer } from '@/types';
+import { BACKEND_POLL_INTERVAL_MS } from '@/config/constants';
+import { getErrorMessage } from '@/utils/error';
 import dayjs from 'dayjs';
 
 const { TextArea } = Input;
@@ -127,8 +130,8 @@ function SingleSend({ checkServer }: { checkServer: () => Promise<boolean> }) {
       } else {
         message.error('发送失败：' + (result.error || '未知错误'));
       }
-    } catch (err: any) {
-      message.error('发送异常：' + err.message);
+    } catch (err: unknown) {
+      message.error('发送异常：' + getErrorMessage(err, '未知错误'));
     } finally {
       setSending(false);
     }
@@ -221,7 +224,7 @@ function SingleSend({ checkServer }: { checkServer: () => Promise<boolean> }) {
         </div>
         <div style={{ border: '1px solid var(--color-border)', borderRadius: 8, minHeight: 400, maxHeight: 600, overflow: 'auto', padding: 16, background: 'var(--color-surface)' }}>
           {preview ? (
-            <div dangerouslySetInnerHTML={{ __html: preview.html }} />
+            <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(preview.html) }} />
           ) : (
             <div style={{ textAlign: 'center', color: 'var(--color-text-tertiary)', paddingTop: 120 }}>
               <MailOutlined style={{ fontSize: 40, marginBottom: 12 }} />
@@ -286,8 +289,8 @@ function BatchSend({ checkServer }: { checkServer: () => Promise<boolean> }) {
       setResults(r);
       const ok = r.filter((i) => i.success).length;
       message.success(`批量发送完成：成功 ${ok} 封，失败 ${r.length - ok} 封`);
-    } catch (err: any) {
-      message.error('批量发送异常：' + err.message);
+    } catch (err: unknown) {
+      message.error('批量发送异常：' + getErrorMessage(err, '未知错误'));
     } finally {
       setSending(false);
     }
@@ -469,7 +472,7 @@ export default function SendMail() {
 
   useEffect(() => {
     checkServer();
-    const timer = setInterval(checkServer, 15000);
+    const timer = setInterval(checkServer, BACKEND_POLL_INTERVAL_MS);
     return () => clearInterval(timer);
   }, [checkServer]);
 

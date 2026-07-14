@@ -162,17 +162,23 @@ async def get_after_sales_stats(db: AsyncSession) -> dict:
 
 
 async def get_top_issue_products(db: AsyncSession, limit: int = 10) -> list[dict]:
-    """高频问题商品（内存 join 工单→交易）。复刻前端 getTopIssueProducts。"""
-    all_tickets = list((await db.execute(select(AfterSales))).scalars().all())
-    all_trades = list((await db.execute(select(Transaction))).scalars().all())
-    tx_by_id = {t.id: t for t in all_trades if t.id is not None}
-    agg: dict[str, int] = {}
-    for a in all_tickets:
-        t = tx_by_id.get(a.transaction_id)
-        if t is None:
-            continue
-        agg[t.product_name] = agg.get(t.product_name, 0) + 1
-    result = [{"productName": k, "count": v} for k, v in agg.items()]
-    result.sort(key=lambda x: x["count"], reverse=True)
-    return result[:limit]
+    """高频问题商品（SQL JOIN 工单→交易 + GROUP BY 聚合）。
+
+    优化：用单次 SQL JOIN + GROUP BY + ORDER BY + LIMIT，避免全表加载到内存。
+    """
+    rows = (
+        await db.execute(
+            select(
+                Transaction.product_name,
+                func.count(AfterSales.id).label("cnt"),
+            ).join(
+                Transaction, AfterSales.transaction_id == Transaction.id
+            ).group_by(
+                Transaction.product_name
+            ).order_by(
+                func.count(AfterSales.id).desc()
+            ).limit(limit)
+        )
+    ).all()
+    return [{"productName": name, "count": count} for name, count in rows]
 

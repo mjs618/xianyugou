@@ -35,6 +35,8 @@ class XianyuAccount(Base):
         Integer, nullable=False, default=0, server_default="0"
     )
     paused_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    # P2-3 软删除：账号删除时不物理删除，保留关联数据可追溯
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 

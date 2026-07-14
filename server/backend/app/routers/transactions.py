@@ -20,6 +20,7 @@ async def list_transactions(
     status: Optional[str] = Query(None),
     start: Optional[str] = Query(None, description="起始日期 ISO"),
     end: Optional[str] = Query(None, description="结束日期 ISO"),
+    channel: Optional[str] = Query(None, description="销售渠道过滤：xianyu/wechat/other"),
     with_name: bool = Query(False, description="是否内联返回 customer_name"),
     db: AsyncSession = Depends(get_db),
 ):
@@ -28,7 +29,7 @@ async def list_transactions(
     end_dt = parse_date(end) if end else None
     items = await transaction_service.list_transactions(
         db, customer_id=customer_id, status=status, start=start_dt, end=end_dt,
-        with_customer_name=with_name,
+        channel=channel, with_customer_name=with_name,
     )
     await db.commit()
     return items
@@ -57,6 +58,7 @@ async def create_transaction(payload: TransactionCreate, db: AsyncSession = Depe
             status=payload.status,
             warranty_days=payload.warranty_days,
             source_type=payload.source_type,
+            channel=payload.channel,
             xianyu_order_no=payload.xianyu_order_no,
             product_template_id=payload.product_template_id,
             source_customer_id=payload.source_customer_id,
@@ -70,10 +72,11 @@ async def create_transaction(payload: TransactionCreate, db: AsyncSession = Depe
 
 
 @router.patch("/{tx_id}", response_model=TransactionOut)
-async def update_transaction(tx_id: int, payload: dict = Body(...), db: AsyncSession = Depends(get_db)):
-    expected_version = payload.pop("expected_version", None)
+async def update_transaction(tx_id: int, payload: TransactionUpdate = Body(...), db: AsyncSession = Depends(get_db)):
+    data = payload.model_dump(exclude_unset=True)
+    expected_version = data.pop("expected_version", None)
     try:
-        t = await transaction_service.update_transaction(db, tx_id, payload, expected_version)
+        t = await transaction_service.update_transaction(db, tx_id, data, expected_version)
         await db.commit()
         return t
     except ConcurrencyError as e:
@@ -90,11 +93,9 @@ async def delete_transaction(tx_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/{tx_id}/status", response_model=TransactionOut)
-async def change_status(tx_id: int, payload: dict = Body(...), db: AsyncSession = Depends(get_db)):
-    status = payload.get("status")
-    expected_version = payload.get("expected_version")
+async def change_status(tx_id: int, payload: StatusChange = Body(...), db: AsyncSession = Depends(get_db)):
     try:
-        t = await transaction_service.change_status(db, tx_id, status, expected_version)
+        t = await transaction_service.change_status(db, tx_id, payload.status, payload.expected_version)
         await db.commit()
         return t
     except ConcurrencyError as e:

@@ -37,6 +37,22 @@ from .xianyu import (
     XianyuSyncResult,
 )
 from .common import HealthResponse, MessageResponse
+from .auth import TokenStatus, VerifyTokenRequest, VerifyTokenResponse, AuthError
+from .metrics import (
+    AccountMetrics,
+    BackupMetrics,
+    MetricsResponse,
+    SyncMetrics,
+)
+from .customer_tag import CustomerTagCreate, CustomerTagsUpdate
+from .mail_record import MailRecordCreate
+from .warranty import WarrantyEndEarly, WarrantyExtend
+from .system import (
+    BackupInfo,
+    BackupListResponse,
+    RestoreRequest,
+    RestoreResponse,
+)
 
 
 __all__ = [
@@ -80,4 +96,21 @@ __all__ = [
     "XianyuOrderOut",
     "MessageResponse",
     "HealthResponse",
+    "TokenStatus",
+    "VerifyTokenRequest",
+    "VerifyTokenResponse",
+    "AuthError",
+    "AccountMetrics",
+    "BackupMetrics",
+    "MetricsResponse",
+    "SyncMetrics",
+    "CustomerTagCreate",
+    "CustomerTagsUpdate",
+    "MailRecordCreate",
+    "WarrantyExtend",
+    "WarrantyEndEarly",
+    "BackupInfo",
+    "BackupListResponse",
+    "RestoreRequest",
+    "RestoreResponse",
 ]

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
+from ..schemas import CustomerTagCreate, CustomerTagsUpdate
 from ..services import customer_tag_service
 from ..services.customer_tag_service import TagError
 
@@ -32,11 +33,9 @@ async def tags_by_customer(customer_id: int, db: AsyncSession = Depends(get_db))
 
 
 @router.post("")
-async def create_tag(payload: dict = Body(...), db: AsyncSession = Depends(get_db)):
-    name = payload.get("name", "")
-    color = payload.get("color")
+async def create_tag(payload: CustomerTagCreate = Body(...), db: AsyncSession = Depends(get_db)):
     try:
-        t = await customer_tag_service.create_tag(db, name, color)
+        t = await customer_tag_service.create_tag(db, payload.name, payload.color)
         await db.commit()
         return _to_dict(t)
     except TagError as e:
@@ -44,10 +43,9 @@ async def create_tag(payload: dict = Body(...), db: AsyncSession = Depends(get_d
 
 
 @router.post("/set-customer/{customer_id}")
-async def set_customer_tags(customer_id: int, payload: dict = Body(...), db: AsyncSession = Depends(get_db)):
-    tag_names = payload.get("tags", [])
+async def set_customer_tags(customer_id: int, payload: CustomerTagsUpdate = Body(...), db: AsyncSession = Depends(get_db)):
     try:
-        await customer_tag_service.set_customer_tags(db, customer_id, tag_names)
+        await customer_tag_service.set_customer_tags(db, customer_id, payload.tags)
         await db.commit()
         return {"ok": True}
     except TagError as e:

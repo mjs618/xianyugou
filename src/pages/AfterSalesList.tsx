@@ -9,6 +9,7 @@ import AttachmentUpload from '@/components/AttachmentUpload';
 import { formatDateTime } from '@/utils/date';
 import { formatPercent } from '@/utils/format';
 import { clampPageForRecordCount, getPageForRecordId } from '@/utils/pagination';
+import { AFTER_SALES_PENDING_OVERDUE_HOURS, AFTER_SALES_PROCESSING_OVERDUE_HOURS } from '@/config/constants';
 import type { AfterSales, Transaction, AfterSalesStatus, SolutionType } from '@/types';
 
 const { TextArea } = Input;
@@ -30,7 +31,9 @@ const solutionMap: Record<SolutionType, string> = {
 
 function getAfterSalesOverdueHours(ticket: AfterSales): number {
   if (ticket.status !== 'pending' && ticket.status !== 'processing') return 0;
-  const threshold = ticket.status === 'pending' ? 24 : 48;
+  const threshold = ticket.status === 'pending'
+    ? AFTER_SALES_PENDING_OVERDUE_HOURS
+    : AFTER_SALES_PROCESSING_OVERDUE_HOURS;
   const elapsed = dayjs().diff(dayjs(ticket.created_at), 'hour');
   return elapsed > threshold ? elapsed : 0;
 }
@@ -72,7 +75,7 @@ export default function AfterSalesList() {
       // 用交易内联返回的 customer_name 构建客户名映射（避免本地 db 直访）
       const cMap = new Map<number, string>();
       trades.forEach((t) => {
-        const name = (t as any).customer_name as string | undefined;
+        const name = t.customer_name;
         if (name) cMap.set(t.customer_id, name);
       });
       setCustomers(cMap);

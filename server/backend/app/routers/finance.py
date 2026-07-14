@@ -13,8 +13,11 @@ router = APIRouter(prefix="/api/finance", tags=["finance"])
 
 
 @router.get("/overview")
-async def finance_overview(db: AsyncSession = Depends(get_db)):
-    data = await finance_service.get_finance_overview(db)
+async def finance_overview(
+    channel: Optional[str] = Query(None, description="销售渠道过滤：xianyu/wechat/other"),
+    db: AsyncSession = Depends(get_db),
+):
+    data = await finance_service.get_finance_overview(db, channel=channel)
     await db.commit()
     return data
 
@@ -23,12 +26,14 @@ async def finance_overview(db: AsyncSession = Depends(get_db)):
 async def product_profit_stats(
     start: Optional[str] = Query(None),
     end: Optional[str] = Query(None),
+    channel: Optional[str] = Query(None, description="销售渠道过滤：xianyu/wechat/other"),
     db: AsyncSession = Depends(get_db),
 ):
     data = await finance_service.get_product_profit_stats(
         db,
         parse_date(start) if start else None,
         parse_date(end) if end else None,
+        channel=channel,
     )
     await db.commit()
     return data
@@ -48,12 +53,14 @@ async def customer_value_stats(
 async def finance_overview_by_range(
     start: str = Query(...),
     end: str = Query(...),
+    channel: Optional[str] = Query(None, description="销售渠道过滤：xianyu/wechat/other"),
     db: AsyncSession = Depends(get_db),
 ):
     data = await finance_service.get_finance_overview_by_range(
         db,
         parse_date(start),
         parse_date(end),
+        channel=channel,
     )
     await db.commit()
     return data
@@ -62,9 +69,10 @@ async def finance_overview_by_range(
 @router.get("/trend")
 async def trend(
     days: int = Query(30, ge=1, le=365),
+    channel: Optional[str] = Query(None, description="销售渠道过滤：xianyu/wechat/other"),
     db: AsyncSession = Depends(get_db),
 ):
-    data = await finance_service.get_trend(db, days)
+    data = await finance_service.get_trend(db, days, channel=channel)
     await db.commit()
     return data
 
@@ -72,9 +80,26 @@ async def trend(
 @router.get("/monthly-comparison")
 async def monthly_comparison(
     months: int = Query(6, ge=1, le=24),
+    channel: Optional[str] = Query(None, description="销售渠道过滤：xianyu/wechat/other"),
     db: AsyncSession = Depends(get_db),
 ):
-    data = await finance_service.get_monthly_comparison(db, months)
+    data = await finance_service.get_monthly_comparison(db, months, channel=channel)
+    await db.commit()
+    return data
+
+
+@router.get("/channel-breakdown")
+async def channel_breakdown(
+    start: str = Query(...),
+    end: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """按销售渠道 GROUP BY 聚合，返回各渠道收入/成本/利润/笔数占比。"""
+    data = await finance_service.get_channel_breakdown(
+        db,
+        parse_date(start),
+        parse_date(end),
+    )
     await db.commit()
     return data
 

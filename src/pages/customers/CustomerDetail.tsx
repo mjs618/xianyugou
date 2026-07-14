@@ -10,9 +10,9 @@ import { listAfterSales } from '@/services/afterSalesService';
 import { getReferralTree, getReferrerRankings } from '@/services/referralService';
 import { listByReferrer } from '@/services/rebateService';
 import WarrantyTag from '@/components/WarrantyTag';
-import { formatMoney } from '@/utils/format';
+import { formatMoney, channelLabel, channelColorMap } from '@/utils/format';
 import { formatDate, formatDateTime } from '@/utils/date';
-import type { Customer, Transaction, AfterSales, ReferralTreeNode, RebateRecord, CustomerLevel } from '@/types';
+import type { Customer, Transaction, AfterSales, ReferralTreeNode, RebateRecord, CustomerLevel, ChannelType } from '@/types';
 
 const levelMap: Record<CustomerLevel, { label: string; color: string }> = {
   normal: { label: '普通', color: 'default' },
@@ -149,6 +149,7 @@ export default function CustomerDetail() {
 
   const tradeColumns = [
     { title: '商品', dataIndex: 'product_name', ellipsis: true },
+    { title: '渠道', dataIndex: 'channel', width: 70, render: (c: ChannelType) => <Tag color={channelColorMap[c] || 'default'}>{channelLabel(c)}</Tag> },
     { title: '售价', dataIndex: 'sale_price', width: 100, render: (v: number) => formatMoney(v), align: 'right' as const },
     { title: '利润', dataIndex: 'profit', width: 100, render: (v: number) => <span style={{ color: 'var(--color-success)' }}>{formatMoney(v)}</span>, align: 'right' as const },
     { title: '时间', dataIndex: 'trade_at', width: 140, render: (v: Date) => formatDate(v) },

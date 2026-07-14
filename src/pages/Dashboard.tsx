@@ -9,17 +9,17 @@ import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianG
 import StatCard from '@/components/StatCard';
 import { IncomeIcon, ProfitIcon, TradeIcon, NewCustomerIcon, WarrantyIcon, ToolIcon, RebateIcon } from '@/components/RefinedIcons';
 import WarrantyTag from '@/components/WarrantyTag';
-import { getFinanceOverview, getTrend, getNewCustomerCount, getNewCustomerCountByRange, getProductProfitStats } from '@/services/financeService';
+import { getFinanceOverview, getTrend, getNewCustomerCount, getNewCustomerCountByRange, getProductProfitStats, getChannelBreakdown } from '@/services/financeService';
 import { getReferrerRankings } from '@/services/referralService';
 import { getUrgentTransactions } from '@/services/warrantyService';
 import { listTransactions } from '@/services/transactionService';
 import { listCustomers, getChurnRiskStats } from '@/services/customerService';
-import { formatMoney, formatPercent } from '@/utils/format';
+import { formatMoney, formatPercent, channelLabel, channelColorMap } from '@/utils/format';
 import { formatDate } from '@/utils/date';
 import { getMonthRange, getPrevMonthRange } from '@/utils/date';
 import { useAppStore } from '@/store/useAppStore';
 import { useChartColors } from '@/hooks/useChartColors';
-import type { FinanceOverview, TrendPoint, ReferrerRanking, Transaction, Customer, ProductProfitStat } from '@/types';
+import type { FinanceOverview, TrendPoint, ReferrerRanking, Transaction, Customer, ProductProfitStat, ChannelBreakdownItem } from '@/types';
 
 /** 仪表盘告警统计卡（质保到期/待处理售后/待结算返利 共用样式） */
 function AlertStatCard({ icon, label, value, variant, onClick }: {
@@ -71,6 +71,7 @@ export default function Dashboard() {
   const [customers, setCustomers] = useState<Map<number, Customer>>(new Map());
   const [allTrades, setAllTrades] = useState<Transaction[]>([]);
   const [productStats, setProductStats] = useState<ProductProfitStat[]>([]);
+  const [channelBreakdown, setChannelBreakdown] = useState<ChannelBreakdownItem[]>([]);
   const [trendDays, setTrendDays] = useState(30);
 
   const churnStats = useMemo(
@@ -91,7 +92,7 @@ export default function Dashboard() {
     try {
       const prev = getPrevMonthRange(new Date());
       const monthRange = getMonthRange(new Date());
-      const [ov, tr, nc, prevNc, rk, urgent, trades, custs, ps] = await Promise.all([
+      const [ov, tr, nc, prevNc, rk, urgent, trades, custs, ps, cb] = await Promise.all([
         getFinanceOverview(),
         getTrend(trendDays),
         getNewCustomerCount(),
@@ -101,6 +102,7 @@ export default function Dashboard() {
         listTransactions(),
         listCustomers(),
         getProductProfitStats(monthRange.start, monthRange.end),
+        getChannelBreakdown(monthRange.start, monthRange.end),
       ]);
       setOverview(ov);
       setTrend(tr);
@@ -112,6 +114,7 @@ export default function Dashboard() {
       setCustomers(new Map(custs.map((c) => [c.id!, c])));
       setAllTrades(trades);
       setProductStats(ps.slice(0, 5));
+      setChannelBreakdown(cb);
     } catch (err) {
       console.error('Dashboard 数据加载失败:', err);
       setError(err instanceof Error ? err.message : '数据加载失败，请重试');
@@ -364,6 +367,52 @@ export default function Dashboard() {
                   </List.Item>
                 )}
               />
+            )}
+          </Card>
+        </Col>
+      </Row>
+
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Col xs={24} lg={24}>
+          <Card title="本月渠道收入对比" size="small">
+            {channelBreakdown.length === 0 ? (
+              <Empty description="本月暂无交易数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            ) : (
+              <Row gutter={24}>
+                {channelBreakdown.map((ch) => {
+                  const maxIncome = Math.max(...channelBreakdown.map((b) => b.income), 1);
+                  const pct = Math.max((ch.income / maxIncome) * 100, 2);
+                  // 渠道条颜色：根据 channelColorMap 映射到 CSS 变量，未匹配走中性色
+                  const channelBarColorMap: Record<string, string> = {
+                    blue: 'var(--theme-primary)',
+                    green: 'var(--color-success)',
+                  };
+                  const barColor = channelBarColorMap[channelColorMap[ch.channel]] ?? 'var(--color-text-tertiary)';
+                  return (
+                    <Col xs={24} sm={8} key={ch.channel}>
+                      <div style={{ marginBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Tag color={channelColorMap[ch.channel] || 'default'}>{channelLabel(ch.channel)}</Tag>
+                        <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }} className="tabular-nums">{ch.count} 笔</span>
+                      </div>
+                      <div style={{ fontSize: 22, fontWeight: 600 }} className="tabular-nums">
+                        {formatMoney(ch.income)}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--color-success)', marginBottom: 8 }} className="tabular-nums">
+                        利润 {formatMoney(ch.profit)}
+                      </div>
+                      <div style={{ background: 'var(--color-bg)', height: 6, borderRadius: 3 }}>
+                        <div style={{
+                          width: `${pct}%`,
+                          height: '100%',
+                          borderRadius: 3,
+                          background: barColor,
+                          transition: 'width 0.3s ease',
+                        }} />
+                      </div>
+                    </Col>
+                  );
+                })}
+              </Row>
             )}
           </Card>
         </Col>

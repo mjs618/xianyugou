@@ -1,4 +1,8 @@
-"""Database-independent finance calculations."""
+"""Database-independent finance calculations.
+
+build_* 函数接收 SQL 聚合结果（dict / 命名行），做格式化（round2/环比/补零），
+不直接依赖 ORM 对象或数据库连接。
+"""
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -21,17 +25,18 @@ def _change(current: float, previous: float) -> float:
 
 
 def build_overview(
-    current: list[Any],
-    previous: list[Any],
+    current: dict[str, float],
+    previous: dict[str, float],
     *,
     cur_expense: float = 0.0,
     prev_expense: float = 0.0,
 ) -> dict:
-    total_income = round2(sum(item.sale_price for item in current))
-    total_cost = round2(sum(item.cost_price for item in current) + cur_expense)
+    """构建收支总览。current/previous 为 SQL 聚合结果 {income, cost, profit, count}。"""
+    total_income = round2(current["income"])
+    total_cost = round2(current["cost"] + cur_expense)
     total_profit = round2(total_income - total_cost)
-    prev_income = round2(sum(item.sale_price for item in previous))
-    prev_cost = round2(sum(item.cost_price for item in previous) + prev_expense)
+    prev_income = round2(previous["income"])
+    prev_cost = round2(previous["cost"] + prev_expense)
     prev_profit = round2(prev_income - prev_cost)
     return {
         "totalIncome": total_income,
@@ -39,127 +44,102 @@ def build_overview(
         "totalProfit": total_profit,
         "operatingExpense": cur_expense,
         "profitRate": round2(total_profit / total_income) if total_income > 0 else 0.0,
-        "tradeCount": len(current),
+        "tradeCount": current["count"],
         "prevIncome": prev_income,
         "prevProfit": prev_profit,
-        "prevTradeCount": len(previous),
+        "prevTradeCount": previous["count"],
         "incomeChange": _change(total_income, prev_income),
         "profitChange": _change(total_profit, prev_profit),
-        "tradeCountChange": _change(len(current), len(previous)),
+        "tradeCountChange": _change(current["count"], previous["count"]),
     }
 
 
-def build_product_profit_stats(trades: list[Any]) -> list[dict]:
-    aggregated: dict[str, dict] = {}
-    for item in trades:
-        row = aggregated.setdefault(
-            item.product_name,
-            {"income": 0.0, "profit": 0.0, "count": 0},
-        )
-        row["income"] += item.sale_price
-        row["profit"] += item.profit
-        row["count"] += 1
+def build_product_profit_stats(rows: Any) -> list[dict]:
+    """构建商品利润排行。rows 为 SQL GROUP BY 结果（具名行，含 product_name/income/cost/profit/count）。"""
     result = [
         {
-            "productName": name,
-            "totalIncome": round2(row["income"]),
-            "totalProfit": round2(row["profit"]),
-            "count": row["count"],
+            "productName": row.product_name,
+            "totalIncome": round2(float(row.income or 0)),
+            "totalCost": round2(float(row.cost or 0)),
+            "totalProfit": round2(float(row.profit or 0)),
+            "count": row.count,
             "profitRate": (
-                round2(row["profit"] / row["income"])
-                if row["income"] > 0
+                round2(float(row.profit or 0) / float(row.income))
+                if row.income and float(row.income) > 0
                 else 0.0
             ),
         }
-        for name, row in aggregated.items()
+        for row in rows
     ]
     result.sort(key=lambda row: row["totalProfit"], reverse=True)
     return result
 
 
 def build_daily_trend(
-    trades: list[Any],
-    expenses: list[Any],
+    trade_buckets: dict[str, dict[str, float]],
+    expense_buckets: dict[str, float],
     start: datetime,
     end: datetime,
 ) -> list[dict]:
+    """构建每日收支趋势。trade_buckets/expense_buckets 为 SQL GROUP BY DATE 结果的 dict 映射。
+    Python 仅负责补零天（SQL GROUP BY 只返回有数据的天）。
+    """
     series: list[str] = []
     current = start.replace(hour=0, minute=0, second=0, microsecond=0)
     last = end.replace(hour=0, minute=0, second=0, microsecond=0)
     while current <= last:
         series.append(current.strftime("%Y-%m-%d"))
         current += timedelta(days=1)
-    buckets = {
-        day: {"income": 0.0, "cost": 0.0, "profit": 0.0}
-        for day in series
-    }
-    for item in trades:
-        key = item.trade_at.strftime("%Y-%m-%d") if item.trade_at else None
-        if key in buckets:
-            buckets[key]["income"] += item.sale_price
-            buckets[key]["cost"] += item.cost_price
-            buckets[key]["profit"] += item.profit
-    for item in expenses:
-        key = item.occurred_at.strftime("%Y-%m-%d") if item.occurred_at else None
-        if key in buckets:
-            buckets[key]["cost"] += item.amount
-            buckets[key]["profit"] -= item.amount
     return [
         {
             "date": day,
-            "income": round2(buckets[day]["income"]),
-            "cost": round2(buckets[day]["cost"]),
-            "profit": round2(buckets[day]["profit"]),
+            "income": round2(trade_buckets.get(day, {}).get("income", 0.0)),
+            "cost": round2(
+                trade_buckets.get(day, {}).get("cost", 0.0)
+                + expense_buckets.get(day, 0.0)
+            ),
+            "profit": round2(
+                trade_buckets.get(day, {}).get("profit", 0.0)
+                - expense_buckets.get(day, 0.0)
+            ),
         }
         for day in series
     ]
 
 
 def build_monthly_comparison(
-    trades: list[Any],
-    expenses: list[Any],
+    trade_buckets: dict[str, dict[str, float]],
+    expense_buckets: dict[str, float],
     *,
     start_year: int,
     start_month: int,
     months: int,
 ) -> list[dict]:
-    buckets: dict[str, dict] = {}
+    """构建月度对比。trade_buckets/expense_buckets 为 SQL GROUP BY strftime(trade_at,'%Y-%m') 结果的 dict 映射。
+    Python 仅负责补零月。
+    """
     order: list[str] = []
     year, month = start_year, start_month
     for _ in range(months):
         key = f"{year:04d}-{month:02d}"
-        buckets[key] = {
-            "income": 0.0,
-            "cost": 0.0,
-            "profit": 0.0,
-            "count": 0,
-        }
         order.append(key)
         month += 1
         if month > 12:
             month = 1
             year += 1
-    for item in trades:
-        if item.trade_at:
-            key = item.trade_at.strftime("%Y-%m")
-            if key in buckets:
-                buckets[key]["income"] += item.sale_price
-                buckets[key]["cost"] += item.cost_price
-                buckets[key]["profit"] += item.profit
-                buckets[key]["count"] += 1
-    for item in expenses:
-        if item.occurred_at:
-            key = item.occurred_at.strftime("%Y-%m")
-            if key in buckets:
-                buckets[key]["cost"] += item.amount
-                buckets[key]["profit"] -= item.amount
     return [
         {
             "month": f"{int(key.split('-')[1])}月",
-            "income": round2(buckets[key]["income"]),
-            "cost": round2(buckets[key]["cost"]),
-            "profit": round2(buckets[key]["profit"]),
-            "tradeCount": buckets[key]["count"],
+            "income": round2(trade_buckets.get(key, {}).get("income", 0.0)),
+            "cost": round2(
+                trade_buckets.get(key, {}).get("cost", 0.0)
+                + expense_buckets.get(key, 0.0)
+            ),
+            "profit": round2(
+                trade_buckets.get(key, {}).get("profit", 0.0)
+                - expense_buckets.get(key, 0.0)
+            ),
+            "tradeCount": int(trade_buckets.get(key, {}).get("count", 0)),
         }
         for key in order
     ]

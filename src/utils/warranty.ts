@@ -1,5 +1,6 @@
 import type { Transaction, WarrantyStatus, WarrantyStatusType } from '@/types';
 import { daysBetween } from './date';
+import { WARRANTY_URGENT_DAYS } from '@/config/constants';
 
 // 质保状态计算（BR-2 相关展示）
 export function getWarrantyStatus(warrantyEnd?: Date | string | null): WarrantyStatus {
@@ -10,7 +11,7 @@ export function getWarrantyStatus(warrantyEnd?: Date | string | null): WarrantyS
   if (daysLeft <= 0) {
     return { type: 'expired', label: '已过期', color: 'gray', daysLeft: 0 };
   }
-  if (daysLeft <= 3) {
+  if (daysLeft <= WARRANTY_URGENT_DAYS) {
     return { type: 'urgent', label: `剩${daysLeft}天`, color: 'red', daysLeft };
   }
   return { type: 'active', label: `剩${daysLeft}天`, color: 'green', daysLeft };

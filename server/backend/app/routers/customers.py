@@ -51,10 +51,11 @@ async def create_customer(payload: CustomerCreate, db: AsyncSession = Depends(ge
 
 
 @router.patch("/{customer_id}", response_model=CustomerOut)
-async def update_customer(customer_id: int, payload: dict = Body(...), db: AsyncSession = Depends(get_db)):
-    expected_version = payload.pop("expected_version", None)
+async def update_customer(customer_id: int, payload: CustomerUpdate = Body(...), db: AsyncSession = Depends(get_db)):
+    data = payload.model_dump(exclude_unset=True)
+    expected_version = data.pop("expected_version", None)
     try:
-        c = await customer_service.update_customer(db, customer_id, payload, expected_version)
+        c = await customer_service.update_customer(db, customer_id, data, expected_version)
         await db.commit()
         return c
     except ConcurrencyError as e:

@@ -47,6 +47,7 @@ export async function seedDemoData(): Promise<void> {
     status: 'completed',
     warranty_days: 30,
     source_type: 'direct',
+    channel: 'xianyu',
   });
 
   await createTransaction({
@@ -59,6 +60,7 @@ export async function seedDemoData(): Promise<void> {
     status: 'completed',
     warranty_days: 30,
     source_type: 'introduced',
+    channel: 'xianyu',
     source_customer_id: cA.id!,
   });
 
@@ -72,6 +74,7 @@ export async function seedDemoData(): Promise<void> {
     status: 'completed',
     warranty_days: 30,
     source_type: 'introduced',
+    channel: 'xianyu',
     source_customer_id: cA.id!,
   });
 
@@ -85,6 +88,7 @@ export async function seedDemoData(): Promise<void> {
     status: 'completed',
     warranty_days: 30,
     source_type: 'introduced',
+    channel: 'xianyu',
     source_customer_id: cB.id!,
   });
 
@@ -99,6 +103,7 @@ export async function seedDemoData(): Promise<void> {
     status: 'completed',
     warranty_days: 30,
     source_type: 'direct',
+    channel: 'xianyu',
   });
 
   // 待处理交易
@@ -112,6 +117,7 @@ export async function seedDemoData(): Promise<void> {
     status: 'pending',
     warranty_days: 30,
     source_type: 'direct',
+    channel: 'xianyu',
   });
 
   // 本月交易补充
@@ -125,5 +131,6 @@ export async function seedDemoData(): Promise<void> {
     status: 'completed',
     warranty_days: 30,
     source_type: 'repeat',
+    channel: 'xianyu',
   });
 }

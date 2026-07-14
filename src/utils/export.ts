@@ -1,6 +1,7 @@
 import type { Transaction, Customer, FinanceOverview, ProductProfitStat, CustomerValueStat, RebateRecord } from '@/types';
 import type { WorkSheet } from 'xlsx';
 import { formatDate } from './date';
+import { channelLabel } from './format';
 import { encryptWithPassword, decryptWithPassword, isEncryptedBackup } from './backupCrypto';
 import { apiClient } from '@/services/apiClient';
 
@@ -61,7 +62,7 @@ function escapeCSVCell(value: unknown): string {
 
 // 导出 CSV（交易明细）
 export function exportTransactionsCSV(transactions: Transaction[]): string {
-  const header = ['交易ID', '闲鱼订单号', '商品名称', '售价', '成本', '利润', '客户ID', '交易时间', '发货时间', '状态', '质保到期', '来源类型', '备注'];
+  const header = ['交易ID', '闲鱼订单号', '商品名称', '售价', '成本', '利润', '客户ID', '交易时间', '发货时间', '状态', '质保到期', '来源类型', '销售渠道', '备注'];
   const rows = transactions.map((t) => [
     t.id,
     t.xianyu_order_no || '',
@@ -75,6 +76,7 @@ export function exportTransactionsCSV(transactions: Transaction[]): string {
     t.status,
     t.warranty_end ? formatDate(t.warranty_end, 'YYYY-MM-DD') : '',
     t.source_type,
+    channelLabel(t.channel),
     (t.notes || '').replace(/[\r\n,]/g, ' '),
   ]);
   const all = [header, ...rows];
@@ -167,7 +169,7 @@ function escapeExcelAoa(rows: unknown[][]): unknown[][] {
 // 交易明细单 Sheet Excel 导出（与 CSV 字段对齐，便于直接复用）
 export async function exportTransactionsExcel(transactions: Transaction[]): Promise<Blob> {
   const XLSX = await import('xlsx');
-  const header = ['交易ID', '闲鱼订单号', '商品名称', '售价', '成本', '利润', '客户ID', '交易时间', '发货时间', '状态', '质保到期', '来源类型', '备注'];
+  const header = ['交易ID', '闲鱼订单号', '商品名称', '售价', '成本', '利润', '客户ID', '交易时间', '发货时间', '状态', '质保到期', '来源类型', '销售渠道', '备注'];
   const rows = transactions.map((t) => [
     t.id ?? '',
     t.xianyu_order_no || '',
@@ -181,12 +183,13 @@ export async function exportTransactionsExcel(transactions: Transaction[]): Prom
     transactionStatusLabel(t.status),
     t.warranty_end ? formatDate(t.warranty_end, 'YYYY-MM-DD') : '',
     sourceTypeLabel(t.source_type),
+    channelLabel(t.channel),
     t.notes || '',
   ]);
   // P1 Excel 公式注入防御
   escapeExcelAoa(rows);
   const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
-  setColWidths(ws, [8, 22, 24, 10, 10, 10, 10, 18, 18, 10, 14, 12, 30]);
+  setColWidths(ws, [8, 22, 24, 10, 10, 10, 10, 18, 18, 10, 14, 12, 10, 30]);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, '交易明细');
   const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
@@ -236,7 +239,7 @@ export async function exportFinanceReportExcel(data: FinanceReportExcelData): Pr
   XLSX.utils.book_append_sheet(wb, wsOverview, '收支总览');
 
   // Sheet 2: 交易明细（按当前周期过滤）
-  const txHeader = ['交易ID', '闲鱼订单号', '商品名称', '售价', '成本', '利润', '客户ID', '交易时间', '发货时间', '状态', '质保到期', '来源类型', '备注'];
+  const txHeader = ['交易ID', '闲鱼订单号', '商品名称', '售价', '成本', '利润', '客户ID', '交易时间', '发货时间', '状态', '质保到期', '来源类型', '销售渠道', '备注'];
   const txRows = data.transactions.map((t) => [
     t.id ?? '',
     t.xianyu_order_no || '',
@@ -250,28 +253,30 @@ export async function exportFinanceReportExcel(data: FinanceReportExcelData): Pr
     transactionStatusLabel(t.status),
     t.warranty_end ? formatDate(t.warranty_end, 'YYYY-MM-DD') : '',
     sourceTypeLabel(t.source_type),
+    channelLabel(t.channel),
     t.notes || '',
   ]);
   // P1 Excel 公式注入防御
   escapeExcelAoa(txRows);
   const wsTx = XLSX.utils.aoa_to_sheet([txHeader, ...txRows]);
-  setColWidths(wsTx, [8, 22, 24, 10, 10, 10, 10, 18, 18, 10, 14, 12, 30]);
+  setColWidths(wsTx, [8, 22, 24, 10, 10, 10, 10, 18, 18, 10, 14, 12, 10, 30]);
   XLSX.utils.book_append_sheet(wb, wsTx, '交易明细');
 
   // Sheet 3: 商品利润排行
-  const prodHeader = ['排名', '商品名称', '笔数', '收入', '利润', '利润率'];
+  const prodHeader = ['排名', '商品名称', '笔数', '收入', '成本', '利润', '利润率'];
   const prodRows = data.products.map((p, idx) => [
     idx + 1,
     p.productName,
     p.count,
     p.totalIncome,
+    p.totalCost,
     p.totalProfit,
     `${(p.profitRate * 100).toFixed(2)}%`,
   ]);
   // P1 Excel 公式注入防御
   escapeExcelAoa(prodRows);
   const wsProd = XLSX.utils.aoa_to_sheet([prodHeader, ...prodRows]);
-  setColWidths(wsProd, [6, 28, 8, 12, 12, 10]);
+  setColWidths(wsProd, [6, 28, 8, 12, 12, 12, 10]);
   XLSX.utils.book_append_sheet(wb, wsProd, '商品利润排行');
 
   // Sheet 4: 客户消费排行

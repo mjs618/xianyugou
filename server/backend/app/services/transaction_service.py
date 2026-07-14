@@ -7,17 +7,22 @@ create_transaction 在单个会话事务中：
 
 这是订单同步进账时复用的核心入口。
 """
+import logging
 from datetime import datetime
 from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Transaction
-from ..utils.helpers import calc_profit, calc_warranty_end, now_utc
+from ..models import ProductTemplate, Transaction, XianyuOrder
+from ..utils.helpers import calc_profit, calc_warranty_end, now_utc, ConcurrencyError
 from .audit_service import log_operation
 from .customer_service import recalc_customer_stats
 from .referral_service import create_referral_and_rebate
 from .settings_service import get_settings
+from .xianyu.order_parser import extract_item_id
+
+
+logger = logging.getLogger(__name__)
 
 
 class TransactionError(ValueError):
@@ -45,6 +50,7 @@ async def create_transaction(
     status: str = "pending",
     warranty_days: Optional[int] = None,
     source_type: str = "direct",
+    channel: str = "xianyu",
     xianyu_order_no: Optional[str] = None,
     product_template_id: Optional[int] = None,
     source_customer_id: Optional[int] = None,
@@ -76,6 +82,7 @@ async def create_transaction(
         warranty_end=warranty_end,
         warranty_days=wdays,
         source_type=source_type,
+        channel=channel,
         source_customer_id=source_customer_id,
         notes=notes,
         attachments=attachments or [],
@@ -122,6 +129,7 @@ async def list_transactions(
     status: Optional[str] = None,
     start: Optional[datetime] = None,
     end: Optional[datetime] = None,
+    channel: Optional[str] = None,
     with_customer_name: bool = False,
 ) -> list:
     """交易列表，支持按客户/状态/日期范围过滤。
@@ -138,6 +146,8 @@ async def list_transactions(
         stmt = stmt.where(Transaction.trade_at >= start)
     if end is not None:
         stmt = stmt.where(Transaction.trade_at <= end)
+    if channel is not None:
+        stmt = stmt.where(Transaction.channel == channel)
     stmt = stmt.order_by(Transaction.trade_at.desc())
     txs = list((await db.execute(stmt)).scalars().all())
     if not with_customer_name:
@@ -181,7 +191,6 @@ async def change_status(db: AsyncSession, tx_id: int, status: str, expected_vers
     t = await get_transaction(db, tx_id)
     if t is None:
         raise TransactionError("交易不存在")
-    from ..utils.helpers import ConcurrencyError
     if expected_version is not None and expected_version != t.version:
         raise ConcurrencyError("交易已被其他操作修改，请刷新后重试")
     old_status = t.status
@@ -211,7 +220,6 @@ async def update_transaction(db: AsyncSession, tx_id: int, patch: dict, expected
     t = await get_transaction(db, tx_id)
     if t is None:
         raise TransactionError("交易不存在")
-    from ..utils.helpers import ConcurrencyError
     if expected_version is not None and expected_version != t.version:
         raise ConcurrencyError("交易已被其他操作修改，请刷新后重试")
 
@@ -219,6 +227,9 @@ async def update_transaction(db: AsyncSession, tx_id: int, patch: dict, expected
         raise TransactionError("售价不能为负数")
     if "cost_price" in patch and patch["cost_price"] is not None and patch["cost_price"] < 0:
         raise TransactionError("成本不能为负数")
+
+    # 记录原客户 ID，用于客户变更后的级联重算（先扣老客户再加新客户）
+    old_customer_id = t.customer_id
 
     price_changed = "sale_price" in patch or "cost_price" in patch
     if price_changed:
@@ -236,9 +247,9 @@ async def update_transaction(db: AsyncSession, tx_id: int, patch: dict, expected
     if "shipped_at" in patch:
         t.shipped_at = patch["shipped_at"]
 
-    # 其余字段
-    for k in ("xianyu_order_no", "product_name", "product_template_id", "sale_price",
-              "cost_price", "status", "source_type", "source_customer_id", "notes", "attachments"):
+    # 其余字段（含 customer_id，支持交易归属客户变更）
+    for k in ("customer_id", "xianyu_order_no", "product_name", "product_template_id", "sale_price",
+              "cost_price", "status", "source_type", "channel", "source_customer_id", "notes", "attachments"):
         if k in patch:
             setattr(t, k, patch[k])
 
@@ -254,9 +265,11 @@ async def update_transaction(db: AsyncSession, tx_id: int, patch: dict, expected
     await db.flush()
 
     # 级联：客户累计
+    # 顺序很重要：客户变更时先 recalc 老客户（此时交易已不属于老客户，统计会扣除这笔），
+    # 再 recalc 新客户（此时交易已属于新客户，统计会加上这笔）
+    if t.customer_id != old_customer_id:
+        await recalc_customer_stats(db, old_customer_id)
     await recalc_customer_stats(db, t.customer_id)
-    if patch.get("customer_id") and patch["customer_id"] != t.customer_id:
-        await recalc_customer_stats(db, patch["customer_id"])
 
     await log_operation(
         db, "transaction", "update", target_id=tx_id, target_name=t.product_name,
@@ -297,3 +310,108 @@ async def soft_delete_transaction(db: AsyncSession, tx_id: int) -> None:
     await recalc_customer_stats(db, t.customer_id)
 
     await log_operation(db, "transaction", "delete", target_id=tx_id, target_name=t.product_name)
+
+
+async def backfill_transaction_cost_from_templates(db: AsyncSession) -> dict:
+    """一次性回填历史交易的成本价与模板关联。
+
+    针对历史同步进来的、cost_price=0 且未关联模板的交易，通过 xianyu_orders 镜像表的
+    raw_order.itemId 反查 product_templates.source_xianyu_item_id，回填：
+    - product_template_id
+    - cost_price = template.default_cost
+    - profit = calc_profit(sale_price, cost_price)
+
+    只回填 cost_price=0 的交易，不覆盖用户已手动设置的成本。
+    回填后重算受影响客户的累计消费/笔数/等级。
+
+    返回 {matched, backfilled, skipped_no_template, skipped_zero_cost_template}：
+    - matched: 找到匹配模板的交易数（含模板成本仍为 0 的）
+    - backfilled: 实际回填了成本（模板 default_cost > 0）的交易数
+    - skipped_no_template: 无镜像 / 无 itemId / 无匹配模板的交易数
+    - skipped_zero_cost_template: 匹配到模板但模板成本仍为 0 的交易数
+    """
+    # 1. 查所有 cost_price=0 且未删除的交易（只回填 0 值，不覆盖手动设置的成本）
+    txs = list(
+        (await db.execute(
+            select(Transaction).where(
+                Transaction.deleted_at.is_(None),
+                Transaction.cost_price == 0.0,
+            )
+        )).scalars().all()
+    )
+
+    empty = {"matched": 0, "backfilled": 0, "skipped_no_template": 0, "skipped_zero_cost_template": 0}
+    if not txs:
+        return empty
+
+    tx_ids = [t.id for t in txs]
+
+    # 2. 查关联的 xianyu_orders 镜像（按 projected_transaction_id 反查）
+    mirrors = list(
+        (await db.execute(
+            select(XianyuOrder).where(XianyuOrder.projected_transaction_id.in_(tx_ids))
+        )).scalars().all()
+    )
+    mirror_by_tx_id = {
+        m.projected_transaction_id: m for m in mirrors if m.projected_transaction_id is not None
+    }
+
+    # 3. 查所有活跃且绑定了 source_xianyu_item_id 的模板
+    templates = list(
+        (await db.execute(
+            select(ProductTemplate).where(
+                ProductTemplate.is_active.is_(True),
+                ProductTemplate.source_xianyu_item_id.is_not(None),
+            )
+        )).scalars().all()
+    )
+    tpl_by_item_id = {str(t.source_xianyu_item_id): t for t in templates}
+
+    matched = 0
+    backfilled = 0
+    skipped_no_template = 0
+    skipped_zero_cost_template = 0
+    affected_customer_ids: set[int] = set()
+
+    for tx in txs:
+        mirror = mirror_by_tx_id.get(tx.id)
+        if mirror is None or not mirror.raw_order:
+            skipped_no_template += 1
+            continue
+        item_id = extract_item_id(mirror.raw_order)
+        if not item_id:
+            skipped_no_template += 1
+            continue
+        tpl = tpl_by_item_id.get(str(item_id))
+        if tpl is None:
+            skipped_no_template += 1
+            continue
+        matched += 1
+        if tpl.default_cost <= 0:
+            # 模板成本仍为 0：不建立关联，避免误以为已回填；用户填成本后可再次回填
+            skipped_zero_cost_template += 1
+            continue
+        tx.product_template_id = tpl.id
+        tx.cost_price = tpl.default_cost
+        tx.profit = calc_profit(tx.sale_price, tx.cost_price)
+        tx.version += 1
+        tx.updated_at = now_utc()
+        backfilled += 1
+        if tx.customer_id is not None:
+            affected_customer_ids.add(tx.customer_id)
+
+    await db.flush()
+
+    # 4. 重算受影响客户的累计消费/笔数/等级（单个失败不阻断整体回填）
+    for cid in affected_customer_ids:
+        try:
+            await recalc_customer_stats(db, cid)
+        except Exception as e:
+            logger.warning("回填成本后重算客户 %s 统计失败: %s", cid, e)
+
+    return {
+        "matched": matched,
+        "backfilled": backfilled,
+        "skipped_no_template": skipped_no_template,
+        "skipped_zero_cost_template": skipped_zero_cost_template,
+    }

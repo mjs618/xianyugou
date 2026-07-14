@@ -14,6 +14,7 @@ const transaction = (overrides: Partial<Transaction>): Transaction => ({
   warranty_days: 30,
   warranty_end: new Date('2026-08-01T10:00:00'),
   source_type: 'direct',
+  channel: 'xianyu',
   attachments: [],
   version: 1,
   created_at: new Date('2026-07-01T10:00:00'),

@@ -9,6 +9,7 @@ import { getReferrerRankings } from '@/services/referralService';
 import { exportCustomersCSV, downloadFile } from '@/utils/export';
 import { formatMoney } from '@/utils/format';
 import { formatDate } from '@/utils/date';
+import { getErrorMessage, isValidationError } from '@/utils/error';
 import dayjs from 'dayjs';
 import type { Customer, CustomerLevel } from '@/types';
 
@@ -159,10 +160,10 @@ export default function CustomerList() {
       setEditingCustomer(null);
       editForm.resetFields();
       loadData();
-    } catch (err: any) {
-      if (err?.errorFields) return; // 表单校验错误，不提示
+    } catch (err: unknown) {
+      if (isValidationError(err)) return; // 表单校验错误，不提示
       console.error('保存客户失败:', err);
-      message.error(err instanceof Error ? err.message : '保存失败');
+      message.error(getErrorMessage(err, '保存失败'));
     }
   };
 

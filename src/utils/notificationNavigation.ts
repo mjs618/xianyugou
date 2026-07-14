@@ -8,5 +8,6 @@ export function getNotificationTarget(notification: NotificationRecord): string 
   if (notification.type === 'rebate_pending') return '/finance';
   if (notification.type === 'customer_recall' && notification.ref_id) return `/customers/${notification.ref_id}`;
   if (notification.type === 'mail_alert') return '/send-mail';
+  if (notification.type === 'account_paused' || notification.type === 'account_recovered') return '/order-sync';
   return undefined;
 }

@@ -7,12 +7,12 @@ import { listTransactions, softDeleteTransaction, changeStatus } from '@/service
 import { createAfterSales } from '@/services/afterSalesService';
 import { getCustomer } from '@/services/customerService';
 import { exportTransactionsCSV, downloadFile } from '@/utils/export';
-import { formatMoney } from '@/utils/format';
+import { formatMoney, channelLabel, channelColorMap } from '@/utils/format';
 import { formatDate } from '@/utils/date';
-import { getWarrantyStatus } from '@/utils/warranty';
+import { filterTransactions } from '@/utils/transactionFilter';
 import WarrantyTag from '@/components/WarrantyTag';
 import { useAppStore } from '@/store/useAppStore';
-import type { Transaction, TransactionStatus } from '@/types';
+import type { Transaction, TransactionStatus, ChannelType } from '@/types';
 
 const { RangePicker } = DatePicker;
 
@@ -31,6 +31,7 @@ export default function TransactionList() {
   const [customers, setCustomers] = useState<Map<number, string>>(new Map());
   const [filtered, setFiltered] = useState<Transaction[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [channelFilter, setChannelFilter] = useState<string>('all');
   const [keyword, setKeyword] = useState('');
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
   const [timeFilter, setTimeFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
@@ -53,7 +54,7 @@ export default function TransactionList() {
       // 用后端内联返回的 customer_name 构建客户名映射（避免 N+1 查询与本地 db 直访）
       const map = new Map<number, string>();
       list.forEach((t) => {
-        const name = (t as any).customer_name as string | undefined;
+        const name = t.customer_name;
         if (name) map.set(t.customer_id, name);
       });
       setCustomers(map);
@@ -74,56 +75,20 @@ export default function TransactionList() {
     loadData();
   }, [loadData]);
 
-  // 筛选
+  // 筛选（逻辑提取至 filterTransactions 纯函数，便于单元测试）
   useEffect(() => {
-    let result = data;
-    if (statusFilter !== 'all') {
-      result = result.filter((t) => t.status === statusFilter);
-    }
-    if (keyword) {
-      const lower = keyword.toLowerCase();
-      result = result.filter(
-        (t) =>
-          t.product_name.toLowerCase().includes(lower) ||
-          (t.xianyu_order_no || '').toLowerCase().includes(lower) ||
-          (customers.get(t.customer_id) || '').toLowerCase().includes(lower)
-      );
-    }
-    if (dateRange) {
-      const [start, end] = dateRange;
-      result = result.filter((t) => {
-        const tt = dayjs(t.trade_at);
-        return tt.isAfter(start.startOf('day')) && tt.isBefore(end.endOf('day'));
-      });
-    }
-    // 时间筛选
-    if (timeFilter !== 'all') {
-      result = result.filter((t) => {
-        const now = new Date();
-        const tradeDate = new Date(t.trade_at);
-        if (timeFilter === 'today') {
-          if (tradeDate.toDateString() !== now.toDateString()) return false;
-        } else if (timeFilter === 'week') {
-          const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-          if (tradeDate < weekAgo) return false;
-        } else if (timeFilter === 'month') {
-          const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-          if (tradeDate < monthAgo) return false;
-        }
-        return true;
-      });
-    }
-    // 质保即将到期筛选
-    if (warrantyUrgentOnly) {
-      result = result.filter((t) => {
-        if (!t.warranty_end) return false;
-        const ws = getWarrantyStatus(t.warranty_end);
-        return ws.type === 'urgent';
-      });
-    }
+    const result = filterTransactions(data, {
+      statusFilter,
+      channelFilter,
+      keyword,
+      dateRange,
+      timeFilter,
+      warrantyUrgentOnly,
+      customers,
+    });
     setFiltered(result);
     setPage(1);
-  }, [data, statusFilter, keyword, dateRange, customers, timeFilter, warrantyUrgentOnly]);
+  }, [data, statusFilter, channelFilter, keyword, dateRange, customers, timeFilter, warrantyUrgentOnly]);
 
   const handleDelete = async (id: number) => {
     try {
@@ -210,10 +175,16 @@ export default function TransactionList() {
 
   const columns = [
     {
-      title: '闲鱼订单号',
+      title: '订单号',
       dataIndex: 'xianyu_order_no',
       width: 140,
       render: (v: string) => v || <span style={{ color: 'var(--color-text-tertiary)' }}>-</span>,
+    },
+    {
+      title: '渠道',
+      dataIndex: 'channel',
+      width: 70,
+      render: (c: ChannelType) => <Tag color={channelColorMap[c] || 'default'}>{channelLabel(c)}</Tag>,
     },
     {
       title: '商品名称',
@@ -308,7 +279,7 @@ export default function TransactionList() {
         <Col xs={24} sm={8}>
           <Input.Search placeholder="搜索商品名/订单号/买家昵称" allowClear value={keyword} onChange={(e) => setKeyword(e.target.value)} />
         </Col>
-        <Col xs={12} sm={6}>
+        <Col xs={12} sm={4}>
           <Select
             style={{ width: '100%' }}
             value={statusFilter}
@@ -322,7 +293,20 @@ export default function TransactionList() {
             ]}
           />
         </Col>
-        <Col xs={12} sm={10}>
+        <Col xs={12} sm={4}>
+          <Select
+            style={{ width: '100%' }}
+            value={channelFilter}
+            onChange={setChannelFilter}
+            options={[
+              { value: 'all', label: '全部渠道' },
+              { value: 'xianyu', label: '闲鱼' },
+              { value: 'wechat', label: '微信' },
+              { value: 'other', label: '其他' },
+            ]}
+          />
+        </Col>
+        <Col xs={24} sm={8}>
           <RangePicker style={{ width: '100%' }} value={dateRange} onChange={(v) => setDateRange(v as any)} />
         </Col>
         <Col xs={24} sm={6}>
@@ -374,7 +358,7 @@ export default function TransactionList() {
         loading={loading}
         dataSource={filtered.slice((page - 1) * pageSize, page * pageSize)}
         columns={columns}
-        scroll={{ x: 1100 }}
+        scroll={{ x: 1170 }}
         size="middle"
         locale={{
           emptyText: data.length === 0 ? (

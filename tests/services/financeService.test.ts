@@ -11,6 +11,7 @@ import {
   getCustomerValueStats,
   getNewCustomerCount,
   getNewCustomerCountByRange,
+  getChannelBreakdown,
 } from '@/services/financeService';
 
 describe('financeService', () => {
@@ -60,11 +61,13 @@ describe('financeService', () => {
 
   it('getProductProfitStats 无范围时不传 start/end', async () => {
     setMockResponse('get', '/api/finance/products', [
-      { productName: '商品A', totalProfit: 230, totalIncome: 300, count: 2, profitRate: 0.77 },
+      { productName: '商品A', totalProfit: 230, totalIncome: 300, totalCost: 70, count: 2, profitRate: 0.77 },
     ]);
-    await getProductProfitStats();
+    const products = await getProductProfitStats();
     const params = getMockCalls('get', '/api/finance/products')[0].params as any;
     expect(params.start).toBeUndefined();
+    // P0-1：商品利润排行必须包含成本字段
+    expect(products[0].totalCost).toBe(70);
   });
 
   it('getProductProfitStats 有范围时应传递', async () => {
@@ -92,6 +95,56 @@ describe('financeService', () => {
     setMockResponse('get', '/api/finance/new-customer-count', { count: 5 });
     await getNewCustomerCountByRange(new Date('2026-05-01'), new Date('2026-06-30'));
     const params = getMockCalls('get', '/api/finance/new-customer-count')[0].params as any;
+    expect(params.start).toBeDefined();
+    expect(params.end).toBeDefined();
+  });
+
+  // ===== 销售渠道（channel）参数透传测试 =====
+
+  it('getFinanceOverview 不传 channel 时不附加 channel 参数', async () => {
+    setMockResponse('get', '/api/finance/overview', {
+      totalIncome: 0, totalCost: 0, totalProfit: 0, profitRate: 0,
+      tradeCount: 0, prevIncome: 0, prevProfit: 0, prevTradeCount: 0,
+      incomeChange: 0, profitChange: 0, tradeCountChange: 0,
+    });
+    await getFinanceOverview();
+    const params = getMockCalls('get', '/api/finance/overview')[0].params as any;
+    expect(params.channel).toBeUndefined();
+  });
+
+  it('getFinanceOverviewByRange 应传递 channel 参数', async () => {
+    setMockResponse('get', '/api/finance/overview-by-range', {
+      totalIncome: 300, totalCost: 100, totalProfit: 200, profitRate: 0.67,
+      tradeCount: 2, prevIncome: 0, prevProfit: 0, prevTradeCount: 0,
+      incomeChange: 1, profitChange: 1, tradeCountChange: 1,
+    });
+    await getFinanceOverviewByRange(new Date('2026-07-01'), new Date('2026-07-31'), 'wechat');
+    const params = getMockCalls('get', '/api/finance/overview-by-range')[0].params as any;
+    expect(params.channel).toBe('wechat');
+  });
+
+  it('getTrend 应传递 channel 参数', async () => {
+    setMockResponse('get', '/api/finance/trend', []);
+    await getTrend(30, 'xianyu');
+    const params = getMockCalls('get', '/api/finance/trend')[0].params as any;
+    expect(params.channel).toBe('xianyu');
+  });
+
+  it('getProductProfitStats 应传递 channel 参数', async () => {
+    setMockResponse('get', '/api/finance/products', []);
+    await getProductProfitStats(new Date('2026-07-01'), new Date('2026-07-31'), 'wechat');
+    const params = getMockCalls('get', '/api/finance/products')[0].params as any;
+    expect(params.channel).toBe('wechat');
+  });
+
+  it('getChannelBreakdown 应 GET /api/finance/channel-breakdown 并传 start/end', async () => {
+    setMockResponse('get', '/api/finance/channel-breakdown', [
+      { channel: 'xianyu', income: 500, cost: 200, profit: 300, count: 3 },
+      { channel: 'wechat', income: 300, cost: 150, profit: 150, count: 2 },
+    ]);
+    const result = await getChannelBreakdown(new Date('2026-07-01'), new Date('2026-07-31'));
+    expect(result.length).toBe(2);
+    const params = getMockCalls('get', '/api/finance/channel-breakdown')[0].params as any;
     expect(params.start).toBeDefined();
     expect(params.end).toBeDefined();
   });

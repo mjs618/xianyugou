@@ -107,6 +107,8 @@ class SyncScheduler:
             ).where(
                 XianyuAccount.auto_sync_enabled.is_(True),
                 XianyuAccount.status == "online",
+                # P2-3 软删除：跳过已删除账号
+                XianyuAccount.deleted_at.is_(None),
             )
             rows = (await db.execute(stmt)).all()
 

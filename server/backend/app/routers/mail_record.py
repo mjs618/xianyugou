@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
+from ..schemas import MailRecordCreate
 from ..services import mail_record_service
 from ..utils.crypto import encrypt_field, decrypt_field
 
@@ -33,10 +34,10 @@ async def list_mail_records(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("")
-async def add_mail_record(payload: dict = Body(...), db: AsyncSession = Depends(get_db)):
+async def add_mail_record(payload: MailRecordCreate = Body(...), db: AsyncSession = Depends(get_db)):
     from ..utils.helpers import parse_date
     # 敏感字段加密存储；日期字段转 datetime
-    record = dict(payload)
+    record = payload.model_dump(exclude_unset=True)
     if record.get("gpt_password"):
         record["gpt_password"] = encrypt_field(record["gpt_password"])
     if record.get("email_password"):

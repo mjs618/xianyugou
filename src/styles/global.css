@@ -341,3 +341,9 @@ body {
 .ant-pagination-item-active a {
   color: var(--theme-primary) !important;
 }
+
+/* ===== 运营支出明细表格：按列宽自适应，不被容器强制拉伸 ===== */
+.expense-detail-table table {
+  min-width: auto !important;
+  width: auto !important;
+}

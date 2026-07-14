@@ -11,7 +11,8 @@ import { createTransaction, updateTransaction, getTransaction, calcProfit } from
 import { useAppStore } from '@/store/useAppStore';
 import { formatMoney } from '@/utils/format';
 import { calcWarrantyEnd, getEnabledWarrantyDays, getWarrantyFormDefaults } from '@/utils/warranty';
-import type { Customer, SourceType, TransactionStatus, TransactionInput } from '@/types';
+import { getErrorMessage, isValidationError } from '@/utils/error';
+import type { Customer, SourceType, ChannelType, TransactionStatus, TransactionInput } from '@/types';
 
 const { TextArea } = Input;
 
@@ -33,6 +34,7 @@ export default function TransactionForm() {
   const [warrantyDays, setWarrantyDays] = useState(initialWarranty.warrantyDays);
   const [hasWarranty, setHasWarranty] = useState(initialWarranty.hasWarranty);
   const [sourceType, setSourceType] = useState<SourceType>('direct');
+  const [channel, setChannel] = useState<ChannelType>('xianyu');
   const [tradeAt, setTradeAt] = useState<dayjs.Dayjs>(dayjs());
   const [shippedAt, setShippedAt] = useState<dayjs.Dayjs>(dayjs());
   const [status, setStatus] = useState<TransactionStatus>('completed');
@@ -68,6 +70,7 @@ export default function TransactionForm() {
     setWarrantyDays(t.warranty_days);
     setHasWarranty(t.warranty_days > 0);
     setSourceType(t.source_type);
+    setChannel(t.channel);
     setTradeAt(dayjs(t.trade_at));
     setShippedAt(t.shipped_at ? dayjs(t.shipped_at) : dayjs(t.trade_at));
     setStatus(t.status);
@@ -81,6 +84,7 @@ export default function TransactionForm() {
       warranty_days: t.warranty_days,
       has_warranty: t.warranty_days > 0,
       source_type: t.source_type,
+      channel: t.channel,
       source_customer_id: t.source_customer_id,
       notes: t.notes,
       status: t.status,
@@ -192,6 +196,7 @@ export default function TransactionForm() {
         status: values.status || status,
         warranty_days: values.has_warranty === false ? 0 : Number(values.warranty_days ?? warrantyDays),
         source_type: values.source_type || sourceType,
+        channel: values.channel || channel,
         source_customer_id: values.source_customer_id,
         notes: values.notes,
         attachments: values.attachments || [],
@@ -208,9 +213,9 @@ export default function TransactionForm() {
         refreshAll();
         navigate('/transactions');
       }
-    } catch (err: any) {
-      if (err?.errorFields) return; // 表单校验错误
-      message.error(err?.message || '操作失败');
+    } catch (err: unknown) {
+      if (isValidationError(err)) return; // 表单校验错误
+      message.error(getErrorMessage(err, '操作失败'));
     } finally {
       setLoading(false);
     }
@@ -265,6 +270,7 @@ export default function TransactionForm() {
         status: values.status || status,
         warranty_days: values.has_warranty === false ? 0 : Number(values.warranty_days ?? warrantyDays),
         source_type: values.source_type || sourceType,
+        channel: values.channel || channel,
         source_customer_id: values.source_customer_id,
         notes: values.notes,
         attachments: values.attachments || [],
@@ -279,6 +285,7 @@ export default function TransactionForm() {
       form.setFieldsValue({
         customer_id: customerId,
         source_type: values.source_type,
+        channel: values.channel,
         source_customer_id: values.source_customer_id,
         status: 'completed',
         trade_at: dayjs(),
@@ -292,9 +299,9 @@ export default function TransactionForm() {
       setHasWarranty(initialWarranty.hasWarranty);
       setTradeAt(dayjs());
       setShippedAt(dayjs());
-    } catch (err: any) {
-      if (err?.errorFields) return;
-      message.error(err?.message || '操作失败');
+    } catch (err: unknown) {
+      if (isValidationError(err)) return;
+      message.error(getErrorMessage(err, '操作失败'));
     } finally {
       setLoading(false);
     }
@@ -320,7 +327,7 @@ export default function TransactionForm() {
         </Space>
       }
     >
-      <Form form={form} layout="vertical" initialValues={{ status: 'completed', source_type: 'direct', has_warranty: initialWarranty.hasWarranty, warranty_days: initialWarranty.warrantyDays, trade_at: dayjs(), shipped_at: dayjs() }}>
+      <Form form={form} layout="vertical" initialValues={{ status: 'completed', source_type: 'direct', channel: 'xianyu', has_warranty: initialWarranty.hasWarranty, warranty_days: initialWarranty.warrantyDays, trade_at: dayjs(), shipped_at: dayjs() }}>
         <Row gutter={24}>
           <Col xs={24} lg={12}>
             <Card type="inner" title="客户信息" size="small">
@@ -396,9 +403,18 @@ export default function TransactionForm() {
               <div style={{ marginBottom: 16, padding: '8px 12px', background: 'var(--color-success-light)', borderRadius: 6 }}>
                 利润：<span style={{ color: 'var(--color-success)', fontWeight: 600, fontSize: 16 }} className="tabular-nums">{formatMoney(profit)}</span>
               </div>
-              <Form.Item name="xianyu_order_no" label="闲鱼订单号（选填）">
-                <Input placeholder="闲鱼订单号" />
+              <Form.Item name="channel" label="销售渠道">
+                <Radio.Group value={channel} onChange={(e) => setChannel(e.target.value)}>
+                  <Radio.Button value="xianyu">闲鱼</Radio.Button>
+                  <Radio.Button value="wechat">微信</Radio.Button>
+                  <Radio.Button value="other">其他</Radio.Button>
+                </Radio.Group>
               </Form.Item>
+              {channel === 'xianyu' && (
+                <Form.Item name="xianyu_order_no" label="闲鱼订单号（选填）">
+                  <Input placeholder="闲鱼订单号" />
+                </Form.Item>
+              )}
               <Row gutter={12}>
                 <Col span={12}>
                   <Form.Item name="trade_at" label="交易时间">

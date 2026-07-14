@@ -11,6 +11,18 @@ services:
     ports:
       - "${WEB_BIND_HOST:-127.0.0.1}:${WEB_PORT:-15173}:5173"
     restart: unless-stopped
+    # P2-7 修复：健康检查（HTTP 5173 探活）+ 资源限制（避免单容器占满宿主机资源）
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5173/',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
 
   mail:
     build:
@@ -22,6 +34,18 @@ services:
     environment:
       - MAIL_PORT=3001
     restart: unless-stopped
+    # P2-7 修复：健康检查 + 资源限制
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
 
   # Python 后端：订单同步 / 数据统一管理（闲鱼对接）
   backend:
@@ -41,6 +65,19 @@ services:
       - COOKIE_CLOUD_PASSWORD=${COOKIE_CLOUD_PASSWORD:-}
       - COOKIE_CLOUD_DOMAIN_KEYWORD=${COOKIE_CLOUD_DOMAIN_KEYWORD:-goofish.com}
     restart: unless-stopped
+    # P2-7 修复：健康检查（GET /api/health）+ 资源限制
+    # start_period=60s 给迁移脚本与同步调度器启动留时间
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
 
 volumes:
   backend-data:

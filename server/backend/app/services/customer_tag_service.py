@@ -3,7 +3,6 @@
 含：标签 CRUD、删除标签时级联清理客户 tags 字段与关联表、
 setCustomerTags 自动建标签 + 重建关联。
 """
-from datetime import datetime
 from typing import Optional
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -45,8 +44,16 @@ async def delete_tag(db: AsyncSession, tag_id: int) -> None:
     relations = list((await db.execute(
         select(CustomerTagRelation).where(CustomerTagRelation.tag_id == tag_id)
     )).scalars().all())
+    # 批量加载关联客户，避免循环内逐个 db.get 导致 N+1 查询
+    customer_ids = [r.customer_id for r in relations]
+    customers_map: dict[int, Customer] = {}
+    if customer_ids:
+        rows = (await db.execute(
+            select(Customer).where(Customer.id.in_(customer_ids))
+        )).scalars().all()
+        customers_map = {c.id: c for c in rows if c.id is not None}
     for r in relations:
-        c = await db.get(Customer, r.customer_id)
+        c = customers_map.get(r.customer_id)
         if c:
             c.tags = [t for t in (c.tags or []) if t != tag.name]
             c.updated_at = now_utc()

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Transaction, WarrantyExtension
@@ -37,6 +37,20 @@ async def get_urgent_transactions(db: AsyncSession) -> list[Transaction]:
         )
     )
     return list((await db.execute(stmt)).scalars().all())
+
+
+async def count_urgent_transactions(db: AsyncSession) -> int:
+    """即将到期（3天内）交易计数 - 用 COUNT 替代加载完整对象。"""
+    now = now_utc()
+    urgent = now + timedelta(days=3)
+    return (await db.execute(
+        select(func.count(Transaction.id)).where(
+            Transaction.deleted_at.is_(None),
+            Transaction.warranty_end.is_not(None),
+            Transaction.warranty_end > now,
+            Transaction.warranty_end <= urgent,
+        )
+    )).scalar_one()
 
 
 async def get_expired_transactions(db: AsyncSession) -> list[Transaction]:

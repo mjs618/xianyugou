@@ -65,7 +65,12 @@ export default function ReferralGraph() {
 
   useEffect(() => {
     if (rootId) {
-      getReferralTree(rootId).then(setTree);
+      getReferralTree(rootId)
+        .then(setTree)
+        .catch((err: unknown) => {
+          console.error('加载推荐树失败:', err);
+          message.error(err instanceof Error ? err.message : '加载推荐树失败，请重试');
+        });
     } else {
       setTree(null);
     }

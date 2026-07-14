@@ -44,6 +44,7 @@ class Transaction(TimestampMixin, Base):
     warranty_end: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
     warranty_days: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
     source_type: Mapped[str] = mapped_column(String(20), nullable=False, default="direct")  # direct/introduced/repeat
+    channel: Mapped[str] = mapped_column(String(20), nullable=False, default="xianyu", index=True)  # xianyu/wechat/other 销售渠道
     source_customer_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     attachments: Mapped[List[str]] = mapped_column(JSON, nullable=False, default=list)

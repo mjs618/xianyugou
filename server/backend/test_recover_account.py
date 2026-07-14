@@ -26,6 +26,7 @@ class RecoverAccountTests(unittest.IsolatedAsyncioTestCase):
     def _make_account(self, *, status="paused", paused_at=None, updated_at=None, valid_cookie=True):
         return SimpleNamespace(
             id=1,
+            nickname="test",
             cookies="encrypted-cookie",
             unb="12345",
             status=status,
@@ -35,6 +36,7 @@ class RecoverAccountTests(unittest.IsolatedAsyncioTestCase):
             consecutive_failures=3,
             auto_sync_enabled=True,
             auto_sync_interval_minutes=120,
+            deleted_at=None,
         )
 
     async def test_recover_requires_paused_status(self):
@@ -69,17 +71,42 @@ class RecoverAccountTests(unittest.IsolatedAsyncioTestCase):
     async def test_recover_clears_pause_state_on_valid_cookie(self):
         paused = datetime(2026, 7, 11, 10, 0, 0)
         account = self._make_account(paused_at=paused, updated_at=paused + timedelta(minutes=5))
+        account.nickname = "测试账号"
         with patch.object(account_service, "decrypt_field", return_value="unb=12345; _m_h5_tk=token_ts"):
             with patch.object(
                 account_service,
                 "validate_cookies",
                 return_value=(True, "12345", "ok"),
             ):
-                result = await account_service.recover_account(FakeDb(account), 1)
+                with patch(
+                    "app.services.notification_service.create_account_recovered_notification"
+                ):
+                    result = await account_service.recover_account(FakeDb(account), 1)
         self.assertEqual(result.status, "online")
         self.assertIsNone(result.paused_at)
         self.assertEqual(result.consecutive_failures, 0)
         self.assertIsNone(result.last_error)
+
+    async def test_recover_creates_notification(self):
+        """P3 告警：账号恢复时应创建 account_recovered 通知。"""
+        paused = datetime(2026, 7, 11, 10, 0, 0)
+        account = self._make_account(paused_at=paused, updated_at=paused + timedelta(minutes=5))
+        account.nickname = "恢复测试号"
+        with patch.object(account_service, "decrypt_field", return_value="unb=12345; _m_h5_tk=token_ts"):
+            with patch.object(
+                account_service,
+                "validate_cookies",
+                return_value=(True, "12345", "ok"),
+            ):
+                with patch(
+                    "app.services.notification_service.create_account_recovered_notification"
+                ) as mock_notify:
+                    await account_service.recover_account(FakeDb(account), 1)
+
+        mock_notify.assert_called_once()
+        call_args = mock_notify.call_args
+        self.assertEqual(call_args.args[1], 1)  # account_id
+        self.assertEqual(call_args.args[2], "恢复测试号")  # nickname
 
     async def test_recover_nonexistent_account_raises(self):
         class EmptyDb:
