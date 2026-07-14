@@ -121,11 +121,12 @@ async def batch_pay(db: AsyncSession, ids: list[int]) -> dict:
         if r is None:
             skipped += 1
             continue
-        try:
-            _validate_transition(r.status, "paid")
-            valid.append(r)
-        except RebateError:
+        # 批量结算语义：只处理 pending 状态。paid/cancelled 一律跳过
+        # （不能用 _validate_transition，因为 paid→paid 是 idempotent no-op 会被误判为合法）。
+        if r.status != "pending":
             skipped += 1
+            continue
+        valid.append(r)
     for r in valid:
         r.status = "paid"
         r.paid_at = now
