@@ -41,6 +41,41 @@ function responseFor(route: Route): unknown {
     return { warrantyUrgent: 0, afterSalesPending: 0, rebatePending: 0 };
   }
   if (path === '/api/notifications/reminders/check') return { created: [] };
+  if (path === '/api/reply-assistant/settings') {
+    return {
+      id: 1,
+      enabled: true,
+      ai_enabled: false,
+      api_base_url: '',
+      api_key_configured: false,
+      model: '',
+      system_prompt: '',
+    };
+  }
+  if (path === '/api/reply-assistant/rules') return [];
+  if (path === '/api/reply-assistant/suggestions') {
+    return {
+      reply: '请通过闲鱼订单申请售后。',
+      source: 'rule',
+      matched_rule_id: 1,
+      risk_level: 'manual_required',
+      risk_reasons: ['退款售后'],
+      copy_allowed: true,
+    };
+  }
+  if (path === '/api/xianyu/accounts') {
+    return [{
+      id: 1,
+      nickname: '主账号',
+      status: 'online',
+      auto_sync_enabled: false,
+      auto_sync_interval_minutes: 120,
+      consecutive_failures: 0,
+      created_at: '2026-07-15T00:00:00Z',
+      updated_at: '2026-07-15T00:00:00Z',
+    }];
+  }
+  if (path === '/api/product-templates') return [];
   if (path === '/api/metrics') {
     return {
       timestamp: '2026-07-15T15:00:00Z',
@@ -116,9 +151,23 @@ test('390px 移动视口可打开完整导航', async ({ page }) => {
   await page.getByRole('button', { name: '打开全部导航' }).click();
   const fullNavigation = page.getByRole('navigation', { name: '全部导航' });
   await expect(fullNavigation).toBeVisible();
+  await expect(fullNavigation.getByText('回复助手')).toBeVisible();
   await expect(fullNavigation.getByText('订单同步')).toBeVisible();
   await expect(fullNavigation.getByText('设置')).toBeVisible();
   await expect(page.getByRole('navigation', { name: '移动快捷导航' })).toBeVisible();
+});
+
+test('回复助手生成规则候选并提示人工核对', async ({ page }) => {
+  await unlock(page);
+  await page.goto('/reply-assistant');
+
+  await expect(page.getByRole('heading', { level: 2, name: '闲鱼回复助手' })).toBeVisible();
+  await page.getByPlaceholder('粘贴买家的最新消息').fill('我想退款');
+  await page.getByRole('button', { name: '生成候选回复' }).click();
+
+  await expect(page.getByText('固定规则', { exact: true })).toBeVisible();
+  await expect(page.getByText('人工核对')).toBeVisible();
+  await expect(page.getByText('触发原因：退款售后')).toBeVisible();
 });
 
 test('设置页可查看真实指标结构的运行状态', async ({ page }) => {

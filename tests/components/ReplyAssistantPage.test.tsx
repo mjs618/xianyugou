@@ -54,7 +54,9 @@ describe('ReplyAssistantPage', () => {
     vi.spyOn(window, 'getComputedStyle').mockImplementation((element) => getComputedStyle(element));
   });
 
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
 
   it('generates, edits and copies a manual-review rule suggestion', async () => {
     replyApi.generateReplySuggestion.mockResolvedValue({
