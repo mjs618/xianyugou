@@ -19,6 +19,33 @@ function responseFor(route: Route): unknown {
   const path = new URL(route.request().url()).pathname;
   if (path === '/api/auth/token-status') return { token_configured: true };
   if (path === '/api/auth/verify-token') return { valid: true };
+  if (path === '/api/health') return { ok: true, service: 'xianyu-backend' };
+  if (path === '/api/xianyu/accounts') {
+    return ['0618', '6674', '主号'].map((nickname, index) => ({
+      id: index + 1,
+      nickname,
+      unb: `mock-${index + 1}`,
+      status: 'paused',
+      last_sync_at: '2026-07-15T12:09:00Z',
+      last_error: 'Cookie 已过期，需更新后恢复',
+      auto_sync_enabled: index === 0,
+      auto_sync_interval_minutes: 60,
+      consecutive_failures: 3,
+      paused_at: '2026-07-15T13:00:00Z',
+      created_at: '2026-07-01T00:00:00Z',
+      updated_at: '2026-07-15T13:00:00Z',
+    }));
+  }
+  if (path === '/api/xianyu/cookiecloud/status') {
+    return {
+      enabled: false,
+      configured_keys: [],
+      missing_keys: ['COOKIE_CLOUD_HOST', 'COOKIE_CLOUD_UUID', 'COOKIE_CLOUD_PASSWORD'],
+      domain_keyword: 'goofish.com',
+      message: 'CookieCloud 未配置完整，Cookie 过期后不会自动续期。',
+      next_step: '请在部署环境中完成配置。',
+    };
+  }
   if (path === '/api/settings') {
     return {
       id: 1,
@@ -131,4 +158,31 @@ test('设置页可查看真实指标结构的运行状态', async ({ page }) => 
   await expect(page.getByText('运行详情')).toBeVisible();
   await expect(page.getByText('运行中')).toBeVisible();
   await expect(page.getByText('7份')).toBeVisible();
+});
+
+test('订单同步页优先展示待处理任务和账号主操作', async ({ page }) => {
+  await unlock(page);
+  await page.goto('/order-sync');
+
+  await expect(page.getByRole('region', { name: '同步状态总览' })).toBeVisible();
+  await expect(page.getByText('3 个账号需要处理')).toBeVisible();
+  await expect(page.getByText('0618、6674、主号')).toBeVisible();
+  await expect(page.getByRole('button', { name: '更新 Cookie 0618' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '校验并恢复 0618' })).toBeVisible();
+
+  const help = page.getByRole('button', { name: /同步说明与 Cookie 获取方法/ });
+  await expect(help).toHaveAttribute('aria-expanded', 'false');
+});
+
+test('390px 订单同步页保持单列且没有页面级横向溢出', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await unlock(page);
+  await page.goto('/order-sync');
+
+  await expect(page.getByRole('region', { name: '同步状态总览' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '更新 Cookie 0618' })).toBeVisible();
+  const hasHorizontalOverflow = await page.evaluate(
+    () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+  );
+  expect(hasHorizontalOverflow).toBe(false);
 });
