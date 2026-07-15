@@ -3,10 +3,8 @@ import { Alert, Button, Card, Form, message, Result, Spin, Tag, Typography } fro
 import {
   CheckCircleOutlined,
   CloudSyncOutlined,
-  LinkOutlined,
   PlusOutlined,
   ReloadOutlined,
-  SafetyCertificateOutlined,
 } from '@ant-design/icons';
 import {
   listAccounts, createAccount, updateAccount, deleteAccount, testAccount,
@@ -28,6 +26,8 @@ import AccountFormModal from './AccountFormModal';
 import OrderMirrorModal from './OrderMirrorModal';
 import ItemMirrorModal from './ItemMirrorModal';
 import SyncLogModal from './SyncLogModal';
+import OrderSyncOverview from './OrderSyncOverview';
+import './orderSync.css';
 
 const { Text } = Typography;
 
@@ -294,67 +294,11 @@ export default function OrderSyncPage() {
         </>
       }
     >
-      <Alert
-        type="info" showIcon style={{ marginBottom: 16 }}
-        message="闲鱼同步说明"
-        description={
-          <span>
-            添加闲鱼账号后，点击「同步订单」即可自动拉取成交订单并写入交易记录（自动建立客户、计算利润、生成质保）。
-            点击「同步商品」会拉取该账号的在售/历史商品摘要，生成商品镜像；需要导入为商品模板时，可到「设置 / 商品模板 / 从闲鱼导入商品」批量导入。
-            同步按订单号去重，可安全重复执行。
-            <br />
-            <Text style={{ fontSize: 12 }}>
-              <SafetyCertificateOutlined /> 安全自动同步：在「自动同步」列逐账号开启后台定时同步（最短 60 分钟一次）。
-              遇到登录失效或风控响应会立即熔断暂停，需更新 Cookie 并通过校验后手动恢复，避免触发平台风控。
-            </Text>
-            <br />
-            <Text style={{ fontSize: 12 }}>
-              <LinkOutlined /> 获取 Cookie：在浏览器登录闲鱼（goofish.com）后，打开开发者工具 → Network → 任意请求 → 复制完整 Cookie。
-            </Text>
-          </span>
-        }
+      <OrderSyncOverview
+        accounts={accounts}
+        cookieCloudStatus={cookieCloudStatus}
+        onReloadCookieCloud={loadCookieCloudStatus}
       />
-
-      {cookieCloudStatus && (
-        <Alert
-          type={cookieCloudStatus.enabled ? 'success' : 'warning'}
-          showIcon
-          style={{ marginBottom: 16 }}
-          message={cookieCloudStatus.enabled ? 'Cookie 过期后会尝试自动续 Cookie' : 'Cookie 过期后不会自动续 Cookie'}
-          description={
-            <span>
-              {cookieCloudStatus.message}
-              <br />
-              <Text style={{ fontSize: 12 }}>
-                {cookieCloudStatus.next_step}
-                {!cookieCloudStatus.enabled && cookieCloudStatus.missing_keys.length > 0
-                  ? ` 缺少配置：${cookieCloudStatus.missing_keys.join('、')}`
-                  : ''}
-              </Text>
-            </span>
-          }
-          action={<Button size="small" onClick={loadCookieCloudStatus}>重新检测</Button>}
-        />
-      )}
-
-      {accounts.some((a) => a.status === 'paused') && (
-        <Alert
-          type="error"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message="存在已熔断的账号"
-          description={
-            <span>
-              以下账号因登录失效、风控响应或连续 3 次未知失败被熔断暂停，自动同步已停止：
-              <Text strong>
-                {' '}{accounts.filter((a) => a.status === 'paused').map((a) => a.nickname).join('、')}
-              </Text>
-              。<br />
-              恢复步骤：先点击编辑按钮更新该账号的 Cookie（必须暂停后更新），再点击「恢复」按钮通过只读校验后解除暂停。
-            </span>
-          }
-        />
-      )}
 
       {lastSyncResult && (
         <Alert
