@@ -499,3 +499,67 @@ export interface XianyuSyncLog {
   error?: string;
   created_at: Date;
 }
+
+// ==================== 回复助手 ====================
+
+export interface ReplyAssistantSettings {
+  id: number;
+  enabled: boolean;
+  ai_enabled: boolean;
+  api_base_url: string;
+  api_key_configured: boolean;
+  model: string;
+  system_prompt: string;
+}
+
+export interface ReplyAssistantSettingsUpdate {
+  enabled?: boolean;
+  ai_enabled?: boolean;
+  api_base_url?: string;
+  api_key?: string;
+  clear_api_key?: boolean;
+  model?: string;
+  system_prompt?: string;
+}
+
+export interface ReplyRule {
+  id: number;
+  name: string;
+  enabled: boolean;
+  priority: number;
+  keywords: string[];
+  reply_text: string;
+  product_template_id: number | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface ReplyRuleInput {
+  name: string;
+  enabled?: boolean;
+  priority?: number;
+  keywords: string[];
+  reply_text: string;
+  product_template_id?: number | null;
+}
+
+export interface ReplyContextMessage {
+  role: 'user' | 'seller';
+  content: string;
+}
+
+export interface ReplySuggestionInput {
+  account_id: number;
+  product_template_id?: number;
+  buyer_message: string;
+  context_messages?: ReplyContextMessage[];
+}
+
+export interface ReplySuggestion {
+  reply: string;
+  source: 'rule' | 'ai';
+  matched_rule_id: number | null;
+  risk_level: 'normal' | 'manual_required';
+  risk_reasons: string[];
+  copy_allowed: boolean;
+}
