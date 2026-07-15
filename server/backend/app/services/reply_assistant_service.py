@@ -1,6 +1,7 @@
 """回复助手配置、规则和风险分类服务。"""
 from __future__ import annotations
 
+import json
 from typing import Any, Optional
 from urllib.parse import urlparse
 
@@ -11,15 +12,19 @@ from ..models import (
     ProductTemplate,
     ReplyAssistantSettings,
     ReplyRule,
+    XianyuAccount,
 )
 from ..schemas.reply_assistant import (
     ReplyAssistantSettingsOut,
     ReplyAssistantSettingsUpdate,
     ReplyRuleCreate,
     ReplyRuleUpdate,
+    ReplySuggestionOut,
+    ReplySuggestionRequest,
 )
-from ..utils.crypto import encrypt_field
+from ..utils.crypto import decrypt_field, encrypt_field
 from .audit_service import log_operation
+from .llm_client import LlmConfig, request_chat_completion
 
 
 class ReplyAssistantError(ValueError):
@@ -268,3 +273,159 @@ def classify_risk(message: str) -> tuple[str, list[str]]:
         if any(keyword.casefold() in normalized for keyword in keywords)
     ]
     return ("manual_required", reasons) if reasons else ("normal", [])
+
+
+async def _get_account(db: AsyncSession, account_id: int) -> XianyuAccount:
+    account = await db.get(XianyuAccount, account_id)
+    if account is None or account.deleted_at is not None:
+        raise ReplyAssistantError("ACCOUNT_NOT_FOUND", "闲鱼账号不存在", 404)
+    return account
+
+
+async def _get_product(
+    db: AsyncSession, product_template_id: Optional[int]
+) -> Optional[ProductTemplate]:
+    if product_template_id is None:
+        return None
+    product = await db.get(ProductTemplate, product_template_id)
+    if product is None:
+        raise ReplyAssistantError("PRODUCT_NOT_FOUND", "商品模板不存在", 404)
+    return product
+
+
+def _build_messages(
+    settings: ReplyAssistantSettings,
+    product: Optional[ProductTemplate],
+    payload: ReplySuggestionRequest,
+) -> list[dict[str, str]]:
+    system_parts = [
+        "你是闲鱼卖家的回复辅助工具，只生成供人工核对和复制的候选回复。"
+        "不得编造价格、库存、物流时间、退款承诺或平台政策。",
+    ]
+    if settings.system_prompt.strip():
+        system_parts.append(settings.system_prompt.strip())
+    if product is not None:
+        price = (
+            str(product.default_sale_price)
+            if product.default_sale_price is not None
+            else "未设置"
+        )
+        system_parts.append(f"商品名称：{product.name}\n默认售价：{price}")
+
+    system_message = {"role": "system", "content": "\n\n".join(system_parts)}
+    context = [
+        {
+            "role": "user" if item.role == "user" else "assistant",
+            "content": item.content.strip(),
+        }
+        for item in payload.context_messages
+        if item.content.strip()
+    ]
+    latest = {"role": "user", "content": payload.buyer_message.strip()}
+
+    def total_chars(items: list[dict[str, str]]) -> int:
+        return sum(len(item["content"]) for item in items)
+
+    messages = [system_message, *context, latest]
+    while context and total_chars(messages) > 12000:
+        context.pop(0)
+        messages = [system_message, *context, latest]
+    return messages
+
+
+async def _audit_suggestion(
+    db: AsyncSession,
+    *,
+    payload: ReplySuggestionRequest,
+    source: str,
+    risk_level: str,
+    matched_rule_id: Optional[int],
+) -> None:
+    detail = json.dumps(
+        {
+            "account_id": payload.account_id,
+            "product_template_id": payload.product_template_id,
+            "source": source,
+            "risk_level": risk_level,
+            "matched_rule_id": matched_rule_id,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    await log_operation(
+        db,
+        "reply_assistant",
+        "suggestion_generate",
+        target_id=payload.account_id,
+        detail=detail,
+    )
+
+
+async def generate_suggestion(
+    db: AsyncSession, payload: ReplySuggestionRequest
+) -> ReplySuggestionOut:
+    settings = await get_settings(db)
+    if not settings.enabled:
+        raise ReplyAssistantError("ASSISTANT_DISABLED", "回复助手尚未启用", 409)
+
+    await _get_account(db, payload.account_id)
+    product = await _get_product(db, payload.product_template_id)
+    buyer_message = payload.buyer_message.strip()
+    if not buyer_message:
+        raise ReplyAssistantError("EMPTY_BUYER_MESSAGE", "买家消息不能为空")
+
+    risk_level, risk_reasons = classify_risk(buyer_message)
+    rule = await match_rule(
+        db,
+        buyer_message=buyer_message,
+        product_template_id=payload.product_template_id,
+    )
+    if rule is not None:
+        result = ReplySuggestionOut(
+            reply=rule.reply_text,
+            source="rule",
+            matched_rule_id=rule.id,
+            risk_level=risk_level,
+            risk_reasons=risk_reasons,
+        )
+        await _audit_suggestion(
+            db,
+            payload=payload,
+            source=result.source,
+            risk_level=result.risk_level,
+            matched_rule_id=result.matched_rule_id,
+        )
+        return result
+
+    if not settings.ai_enabled:
+        raise ReplyAssistantError(
+            "NO_REPLY_AVAILABLE", "没有匹配的固定规则，且 AI 回复未启用", 409
+        )
+    if not settings.api_base_url or not settings.api_key or not settings.model:
+        raise ReplyAssistantError(
+            "AI_NOT_CONFIGURED", "AI 回复配置不完整，请检查地址、密钥和模型", 409
+        )
+
+    reply = await request_chat_completion(
+        LlmConfig(
+            api_base_url=settings.api_base_url,
+            api_key=decrypt_field(settings.api_key),
+            model=settings.model,
+        ),
+        _build_messages(settings, product, payload),
+    )
+    reply = reply.strip()[:1000]
+    result = ReplySuggestionOut(
+        reply=reply,
+        source="ai",
+        risk_level=risk_level,
+        risk_reasons=risk_reasons,
+    )
+    await _audit_suggestion(
+        db,
+        payload=payload,
+        source=result.source,
+        risk_level=result.risk_level,
+        matched_rule_id=None,
+    )
+    return result
