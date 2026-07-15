@@ -75,6 +75,7 @@ export default function ReplyAssistantConfig({
 
   const openRuleModal = (rule?: ReplyRule) => {
     setEditingRule(rule || null);
+    ruleForm.resetFields();
     ruleForm.setFieldsValue(rule
       ? { ...rule, keywords: rule.keywords.join('，') }
       : { enabled: true, priority: 0 });
@@ -91,6 +92,9 @@ export default function ReplyAssistantConfig({
           .map((item) => item.trim())
           .filter(Boolean),
       };
+      if (editingRule && values.product_template_id === undefined) {
+        input.product_template_id = null;
+      }
       if (editingRule) await updateReplyRule(editingRule.id, input);
       else await createReplyRule(input);
       setRuleModalOpen(false);
@@ -197,6 +201,7 @@ export default function ReplyAssistantConfig({
         onCancel={() => setRuleModalOpen(false)}
         onOk={saveRule}
         okText="保存"
+        forceRender
       >
         <Form form={ruleForm} layout="vertical">
           <Form.Item name="name" label="规则名称" rules={[{ required: true }]}>

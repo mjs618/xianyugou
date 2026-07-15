@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from .base import ORMBase
 
@@ -26,6 +26,13 @@ class ReplyAssistantSettingsUpdate(BaseModel):
     model: Optional[str] = Field(default=None, max_length=100)
     system_prompt: Optional[str] = Field(default=None, max_length=4000)
 
+    @model_validator(mode="after")
+    def reject_explicit_null(self):
+        for field_name in self.model_fields_set:
+            if getattr(self, field_name) is None:
+                raise ValueError(f"{field_name} 不能为 null")
+        return self
+
 
 class ReplyRuleCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
@@ -43,6 +50,13 @@ class ReplyRuleUpdate(BaseModel):
     keywords: Optional[list[str]] = Field(default=None, min_length=1, max_length=20)
     reply_text: Optional[str] = Field(default=None, min_length=1, max_length=1000)
     product_template_id: Optional[int] = None
+
+    @model_validator(mode="after")
+    def reject_invalid_null(self):
+        for field_name in self.model_fields_set - {"product_template_id"}:
+            if getattr(self, field_name) is None:
+                raise ValueError(f"{field_name} 不能为 null")
+        return self
 
 
 class ReplyRuleOut(ORMBase):

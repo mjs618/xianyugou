@@ -113,4 +113,74 @@ describe('ReplyAssistantPage', () => {
     expect(await screen.findByText(/已配置；留空保持原密钥不变/)).toBeTruthy();
     expect((screen.getByLabelText('API Key') as HTMLInputElement).value).toBe('');
   });
+
+  it('submits optional recent context with explicit buyer and seller roles', async () => {
+    replyApi.generateReplySuggestion.mockResolvedValue({
+      reply: '候选',
+      source: 'ai',
+      matched_rule_id: null,
+      risk_level: 'normal',
+      risk_reasons: [],
+      copy_allowed: true,
+    });
+    render(<ReplyAssistantPage />);
+
+    fireEvent.change(await screen.findByPlaceholderText('每行一条，例如：买家：想了解一下'), {
+      target: { value: '卖家：您好\n买家：想了解一下' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('粘贴买家的最新消息'), {
+      target: { value: '还有货吗？' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '生成候选回复' }));
+
+    await waitFor(() => expect(replyApi.generateReplySuggestion).toHaveBeenCalledWith({
+      account_id: 1,
+      buyer_message: '还有货吗？',
+      context_messages: [
+        { role: 'seller', content: '您好' },
+        { role: 'user', content: '想了解一下' },
+      ],
+    }));
+  });
+
+  it('clears a stale candidate when the input changes', async () => {
+    replyApi.generateReplySuggestion.mockResolvedValue({
+      reply: '旧候选',
+      source: 'rule',
+      matched_rule_id: 1,
+      risk_level: 'normal',
+      risk_reasons: [],
+      copy_allowed: true,
+    });
+    render(<ReplyAssistantPage />);
+
+    const input = await screen.findByPlaceholderText('粘贴买家的最新消息');
+    fireEvent.change(input, { target: { value: '第一条消息' } });
+    fireEvent.click(screen.getByRole('button', { name: '生成候选回复' }));
+    expect(await screen.findByRole('textbox', { name: '候选回复' })).toBeTruthy();
+
+    fireEvent.change(input, { target: { value: '另一条消息' } });
+
+    expect(screen.queryByRole('textbox', { name: '候选回复' })).toBeNull();
+    expect((input as HTMLTextAreaElement).value).toBe('另一条消息');
+  });
+
+  it('shows a retry action when initial loading fails', async () => {
+    replyApi.getReplyAssistantSettings
+      .mockRejectedValueOnce(new Error('加载失败'))
+      .mockResolvedValueOnce({
+        id: 1,
+        enabled: true,
+        ai_enabled: false,
+        api_base_url: '',
+        api_key_configured: false,
+        model: '',
+        system_prompt: '',
+      });
+    render(<ReplyAssistantPage />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '重新加载' }));
+
+    expect(await screen.findByRole('heading', { name: '闲鱼回复助手' })).toBeTruthy();
+  });
 });

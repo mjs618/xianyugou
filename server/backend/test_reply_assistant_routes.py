@@ -239,8 +239,31 @@ class ReplyAssistantRouteTests(unittest.IsolatedAsyncioTestCase):
             "/api/reply-assistant/suggestions",
             json={"account_id": account_id, "buyer_message": "你好"},
         )
-        self.assertEqual(no_ai.status_code, 409)
+        self.assertEqual(no_ai.status_code, 422)
         self.assertEqual(no_ai.json()["detail"]["code"], "NO_REPLY_AVAILABLE")
+
+    async def test_update_payloads_reject_null_for_non_nullable_fields(self):
+        settings_response = await self.client.put(
+            "/api/reply-assistant/settings",
+            json={"model": None},
+        )
+        self.assertEqual(settings_response.status_code, 422)
+
+        _, product_id = await self._seed_context()
+        created = await self.client.post(
+            "/api/reply-assistant/rules",
+            json={
+                "name": "测试规则",
+                "keywords": ["测试"],
+                "reply_text": "测试回复",
+                "product_template_id": product_id,
+            },
+        )
+        response = await self.client.patch(
+            f"/api/reply-assistant/rules/{created.json()['id']}",
+            json={"name": None},
+        )
+        self.assertEqual(response.status_code, 422)
 
     async def test_ai_context_is_trimmed_and_latest_message_is_preserved(self):
         account_id, _ = await self._seed_context()

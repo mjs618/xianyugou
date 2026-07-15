@@ -399,7 +399,7 @@ async def generate_suggestion(
 
     if not settings.ai_enabled:
         raise ReplyAssistantError(
-            "NO_REPLY_AVAILABLE", "没有匹配的固定规则，且 AI 回复未启用", 409
+            "NO_REPLY_AVAILABLE", "没有匹配的固定规则，且 AI 回复未启用", 422
         )
     if not settings.api_base_url or not settings.api_key or not settings.model:
         raise ReplyAssistantError(

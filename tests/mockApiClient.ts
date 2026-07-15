@@ -60,6 +60,7 @@ const mocked = vi.hoisted(() => {
       apiClient: {
         get: (path: string, params?: Record<string, unknown>) => execute('get', path, undefined, params),
         post: (path: string, body?: unknown, params?: Record<string, unknown>) => execute('post', path, body, params),
+        postLong: (path: string, body?: unknown) => execute('postLong', path, body),
         postForm: (path: string, body: FormData) => execute('postForm', path, body),
         put: (path: string, body?: unknown, params?: Record<string, unknown>) => execute('put', path, body, params),
         patch: (path: string, body?: unknown, params?: Record<string, unknown>) => execute('patch', path, body, params),

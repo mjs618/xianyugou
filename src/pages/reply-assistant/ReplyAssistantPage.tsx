@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Button, Skeleton, Space, Tag, Typography, message } from 'antd';
+import { Alert, Button, Result, Skeleton, Space, Tag, Typography } from 'antd';
 import { ControlOutlined, MessageOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { listActiveTemplates } from '@/services/productTemplateService';
 import {
@@ -26,6 +26,7 @@ export default function ReplyAssistantPage() {
   const [accounts, setAccounts] = useState<XianyuAccount[]>([]);
   const [templates, setTemplates] = useState<ProductTemplate[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [generating, setGenerating] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
 
@@ -43,10 +44,20 @@ export default function ReplyAssistantPage() {
   }, []);
 
   useEffect(() => {
-    loadData()
-      .catch((error) => message.error(error instanceof Error ? error.message : '加载回复助手失败'))
-      .finally(() => setLoading(false));
-  }, [loadData]);
+    void loadInitialData();
+  }, []);
+
+  const loadInitialData = async () => {
+    setLoading(true);
+    setLoadError('');
+    try {
+      await loadData();
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : '加载回复助手失败');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const generate = async (input: ReplySuggestionInput) => {
     setGenerating(true);
@@ -57,8 +68,19 @@ export default function ReplyAssistantPage() {
     }
   };
 
-  if (loading || !settings) {
+  if (loading) {
     return <Skeleton active paragraph={{ rows: 12 }} />;
+  }
+
+  if (loadError || !settings) {
+    return (
+      <Result
+        status="warning"
+        title="回复助手加载失败"
+        subTitle={loadError || '未获取到回复助手配置'}
+        extra={<Button type="primary" onClick={loadInitialData}>重新加载</Button>}
+      />
+    );
   }
 
   return (

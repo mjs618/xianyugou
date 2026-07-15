@@ -91,7 +91,7 @@ describe('replyAssistantService', () => {
       buyer_message: '还有货吗？',
       context_messages: [{ role: 'seller' as const, content: '您好' }],
     };
-    setMockResponse('post', '/api/reply-assistant/suggestions', {
+    setMockResponse('postLong', '/api/reply-assistant/suggestions', {
       reply: '可以直接下单。',
       source: 'ai',
       matched_rule_id: null,
@@ -103,6 +103,6 @@ describe('replyAssistantService', () => {
     const result = await generateReplySuggestion(input);
 
     expect(result.source).toBe('ai');
-    expect(getMockCalls('post', '/api/reply-assistant/suggestions')[0].body).toEqual(input);
+    expect(getMockCalls('postLong', '/api/reply-assistant/suggestions')[0].body).toEqual(input);
   });
 });

@@ -38,6 +38,7 @@ export default function ReplyComposer({
   const [accountId, setAccountId] = useState<number>();
   const [productId, setProductId] = useState<number>();
   const [buyerMessage, setBuyerMessage] = useState('');
+  const [contextText, setContextText] = useState('');
   const [suggestion, setSuggestion] = useState<ReplySuggestion | null>(null);
   const [candidate, setCandidate] = useState('');
 
@@ -46,6 +47,32 @@ export default function ReplyComposer({
   }, [accountId, accounts]);
 
   const selectedAccount = accounts.find((account) => account.id === accountId);
+
+  const clearSuggestion = () => {
+    setSuggestion(null);
+    setCandidate('');
+  };
+
+  const parseContext = () => {
+    const lines = contextText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    if (lines.length > 10) {
+      message.warning('近期上下文最多 10 条');
+      return null;
+    }
+    const parsed = lines.map((line) => {
+      const seller = line.match(/^卖家[：:]\s*(.*)$/);
+      const buyer = line.match(/^买家[：:]\s*(.*)$/);
+      return {
+        role: seller ? 'seller' as const : 'user' as const,
+        content: (seller?.[1] ?? buyer?.[1] ?? line).trim(),
+      };
+    });
+    if (parsed.some((item) => !item.content || item.content.length > 1000)) {
+      message.warning('每条近期上下文需为 1–1000 个字符');
+      return null;
+    }
+    return parsed;
+  };
 
   const generate = async () => {
     const trimmed = buyerMessage.trim();
@@ -57,12 +84,16 @@ export default function ReplyComposer({
       message.warning('请填写买家消息');
       return;
     }
+    const contextMessages = parseContext();
+    if (contextMessages === null) return;
+    clearSuggestion();
     try {
       const input: ReplySuggestionInput = {
         account_id: accountId,
         buyer_message: trimmed,
       };
       if (productId) input.product_template_id = productId;
+      if (contextMessages.length) input.context_messages = contextMessages;
       const result = await onGenerate(input);
       setSuggestion(result);
       setCandidate(result.reply);
@@ -99,7 +130,10 @@ export default function ReplyComposer({
                 <Select
                   aria-label="闲鱼账号"
                   value={accountId}
-                  onChange={setAccountId}
+                  onChange={(value) => {
+                    setAccountId(value);
+                    clearSuggestion();
+                  }}
                   options={accounts.map((account) => ({
                     value: account.id,
                     label: `${account.nickname}${account.status === 'paused' ? ' · 已暂停' : ''}`,
@@ -112,7 +146,10 @@ export default function ReplyComposer({
                   aria-label="商品模板"
                   allowClear
                   value={productId}
-                  onChange={setProductId}
+                  onChange={(value) => {
+                    setProductId(value);
+                    clearSuggestion();
+                  }}
                   options={templates
                     .filter((item) => item.id !== undefined)
                     .map((item) => ({ value: item.id!, label: item.name }))}
@@ -128,10 +165,27 @@ export default function ReplyComposer({
                 className="reply-inline-alert"
               />
             )}
+            <Form.Item
+              label="近期上下文（可选）"
+              extra="每行一条，使用“买家：”或“卖家：”标注角色，最多 10 条。"
+            >
+              <Input.TextArea
+                value={contextText}
+                onChange={(event) => {
+                  setContextText(event.target.value);
+                  clearSuggestion();
+                }}
+                placeholder="每行一条，例如：买家：想了解一下"
+                rows={4}
+              />
+            </Form.Item>
             <Form.Item label="最新买家消息" required>
               <Input.TextArea
                 value={buyerMessage}
-                onChange={(event) => setBuyerMessage(event.target.value)}
+                onChange={(event) => {
+                  setBuyerMessage(event.target.value);
+                  clearSuggestion();
+                }}
                 placeholder="粘贴买家的最新消息"
                 rows={7}
                 maxLength={2000}
@@ -144,7 +198,7 @@ export default function ReplyComposer({
               block
               icon={<SendOutlined />}
               loading={loading}
-              disabled={!assistantEnabled || accounts.length === 0 || !buyerMessage.trim()}
+              disabled={!assistantEnabled || !accountId || !buyerMessage.trim()}
               onClick={generate}
               aria-label="生成候选回复"
             >

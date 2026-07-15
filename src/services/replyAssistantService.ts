@@ -55,5 +55,5 @@ export async function deleteReplyRule(id: number): Promise<void> {
 export async function generateReplySuggestion(
   input: ReplySuggestionInput,
 ): Promise<ReplySuggestion> {
-  return apiClient.post<ReplySuggestion>('/api/reply-assistant/suggestions', input);
+  return apiClient.postLong<ReplySuggestion>('/api/reply-assistant/suggestions', input);
 }
