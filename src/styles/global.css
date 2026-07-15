@@ -85,6 +85,60 @@ body {
   font-feature-settings: 'cv11', 'ss01';
 }
 
+.skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 2000;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--theme-primary);
+  transform: translateY(-150%);
+}
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+:where(a, button, [role='button']):focus-visible {
+  outline: 2px solid var(--theme-primary);
+  outline-offset: 2px;
+}
+
+.stat-card-link {
+  display: block;
+  color: inherit;
+}
+.stat-card-link:hover {
+  color: inherit;
+}
+
+/* ===== 系统认证入口 ===== */
+.auth-gate {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at top right, var(--theme-primary-light), transparent 38%),
+    var(--color-bg);
+}
+.auth-gate-card {
+  width: min(100%, 420px);
+  border-color: var(--color-border);
+  box-shadow: 0 12px 40px rgba(31, 41, 55, 0.08);
+}
+.auth-gate-loading {
+  width: 160px;
+  height: 80px;
+}
+.auth-gate-alert {
+  margin-bottom: 16px;
+}
+.auth-gate-card .ant-alert + .ant-form {
+  margin-top: 16px;
+}
+
 /* 数字等宽对齐 */
 .tabular-nums {
   font-variant-numeric: tabular-nums;
@@ -177,6 +231,17 @@ body {
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 /* ===== 卡片交互增强 - 克制 ===== */
 .ant-card-hoverable:hover {
   border-color: var(--theme-primary-border) !important;
@@ -239,13 +304,17 @@ body {
   display: none;
 }
 @media (max-width: 768px) {
+  .mobile-content {
+    padding-bottom: calc(68px + env(safe-area-inset-bottom)) !important;
+  }
   .mobile-bottom-nav {
     display: flex !important;
     position: fixed;
     bottom: 0;
     left: 0;
     right: 0;
-    height: 56px;
+    height: calc(56px + env(safe-area-inset-bottom));
+    padding-bottom: env(safe-area-inset-bottom);
     background: var(--color-surface);
     border-top: 1px solid var(--color-border);
     z-index: 100;

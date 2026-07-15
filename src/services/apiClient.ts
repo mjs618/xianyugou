@@ -14,6 +14,7 @@ const DEFAULT_BACKEND = (BUILD_BACKEND || 'http://localhost:18001').replace(/\/+
 
 // API Token：存 sessionStorage 而非 localStorage（会话级，关闭浏览器即清除，更安全）
 const TOKEN_KEY = 'xianyu-api-token';
+const authRequiredListeners = new Set<() => void>();
 
 // 安全访问 localStorage（Node/SSR 等非浏览器环境降级）
 function safeStorage(storage: 'local' | 'session'): Storage | null {
@@ -60,6 +61,15 @@ export function clearApiToken(): void {
 
 export function hasApiToken(): boolean {
   return !!getApiToken();
+}
+
+export function subscribeAuthRequired(listener: () => void): () => void {
+  authRequiredListeners.add(listener);
+  return () => authRequiredListeners.delete(listener);
+}
+
+function notifyAuthRequired(): void {
+  authRequiredListeners.forEach((listener) => listener());
 }
 
 // 后端返回的错误格式（FastAPI HTTPException）
@@ -200,6 +210,8 @@ async function request<T>(
     const detail = (data?.detail) || `请求失败（${res.status}）`;
     // 401 时给出更明确的提示，引导用户去 Settings 配置 token
     if (res.status === 401) {
+      clearApiToken();
+      notifyAuthRequired();
       throw new ApiException(401, '后端要求认证：请在「设置 → API 安全」中配置 API Token');
     }
     throw new ApiException(res.status, detail);

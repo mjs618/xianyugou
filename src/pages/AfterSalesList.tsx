@@ -1,42 +1,18 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Card, Table, Button, Space, Tag, Modal, Input, Select, message, Row, Col, Statistic, Empty, Tabs, DatePicker, Popconfirm, Result } from 'antd';
+import { Card, Table, Button, Space, Tag, Input, message, Row, Col, Empty, Tabs, DatePicker, Popconfirm, Result } from 'antd';
 import { PlusOutlined, SearchOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { listAfterSales, createAfterSales, updateStatus, deleteAfterSales, getAfterSalesStats, getTopIssueProducts } from '@/services/afterSalesService';
 import { listTransactions } from '@/services/transactionService';
-import AttachmentUpload from '@/components/AttachmentUpload';
 import { formatDateTime } from '@/utils/date';
-import { formatPercent } from '@/utils/format';
 import { clampPageForRecordCount, getPageForRecordId } from '@/utils/pagination';
-import { AFTER_SALES_PENDING_OVERDUE_HOURS, AFTER_SALES_PROCESSING_OVERDUE_HOURS } from '@/config/constants';
-import type { AfterSales, Transaction, AfterSalesStatus, SolutionType } from '@/types';
-
-const { TextArea } = Input;
-const PAGE_SIZE = 20;
-
-const statusMap: Record<AfterSalesStatus, { label: string; color: string }> = {
-  pending: { label: '待处理', color: 'red' },
-  processing: { label: '处理中', color: 'orange' },
-  resolved: { label: '已解决', color: 'green' },
-  closed: { label: '已关闭', color: 'default' },
-};
-
-const solutionMap: Record<SolutionType, string> = {
-  remote: '远程协助',
-  reship: '重新发货',
-  refund: '退款',
-  other: '其他',
-};
-
-function getAfterSalesOverdueHours(ticket: AfterSales): number {
-  if (ticket.status !== 'pending' && ticket.status !== 'processing') return 0;
-  const threshold = ticket.status === 'pending'
-    ? AFTER_SALES_PENDING_OVERDUE_HOURS
-    : AFTER_SALES_PROCESSING_OVERDUE_HOURS;
-  const elapsed = dayjs().diff(dayjs(ticket.created_at), 'hour');
-  return elapsed > threshold ? elapsed : 0;
-}
+import type { AfterSales, Transaction, AfterSalesStatus } from '@/types';
+import { AFTER_SALES_PAGE_SIZE, statusMap, solutionMap, getAfterSalesOverdueHours } from './aftersales/constants';
+import StatsCards from './aftersales/StatsCards';
+import CreateAfterSalesModal from './aftersales/CreateAfterSalesModal';
+import ResolveAfterSalesModal, { type ResolveFormState } from './aftersales/ResolveAfterSalesModal';
+import TopIssuesCard from './aftersales/TopIssuesCard';
 
 export default function AfterSalesList() {
   const navigate = useNavigate();
@@ -53,7 +29,7 @@ export default function AfterSalesList() {
   const [resolveOpen, setResolveOpen] = useState(false);
   const [current, setCurrent] = useState<AfterSales | null>(null);
   const [createForm, setCreateForm] = useState({ transaction_id: undefined as number | undefined, issue_desc: '', attachments: [] as string[] });
-  const [resolveForm, setResolveForm] = useState<{ type?: SolutionType; desc: string }>({ desc: '' });
+  const [resolveForm, setResolveForm] = useState<ResolveFormState>({ desc: '' });
   const [stats, setStats] = useState<{ totalCount: number; pendingCount: number; resolvedCount: number; avgDurationHours: number; rate: number } | null>(null);
   const [topIssues, setTopIssues] = useState<{ productName: string; count: number }[]>([]);
   const [loadError, setLoadError] = useState(false);
@@ -215,7 +191,7 @@ export default function AfterSalesList() {
       title: '解决方式',
       dataIndex: 'solution_type',
       width: 100,
-      render: (s?: SolutionType) => (s ? solutionMap[s] : '-'),
+      render: (s?: keyof typeof solutionMap) => (s ? solutionMap[s] : '-'),
     },
     {
       title: '创建时间',
@@ -291,32 +267,22 @@ export default function AfterSalesList() {
 
   useEffect(() => {
     if (!focusedTicketId) return;
-    setCurrentPage((page) => getPageForRecordId(filteredData, focusedTicketId, PAGE_SIZE, page));
+    setCurrentPage((page) => getPageForRecordId(filteredData, focusedTicketId, AFTER_SALES_PAGE_SIZE, page));
   }, [focusedTicketId, filteredData]);
 
   useEffect(() => {
-    setCurrentPage((page) => clampPageForRecordCount(filteredData.length, PAGE_SIZE, page));
+    setCurrentPage((page) => clampPageForRecordCount(filteredData.length, AFTER_SALES_PAGE_SIZE, page));
   }, [filteredData.length]);
 
   return (
     <div>
-      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-        <Col xs={12} sm={6}>
-          <Card><Statistic title="售后总数" value={stats?.totalCount || 0} /></Card>
-        </Col>
-        <Col xs={12} sm={6}>
-          <Card><Statistic title="待处理" value={stats?.pendingCount || 0} valueStyle={{ color: 'var(--color-danger)' }} /></Card>
-        </Col>
-        <Col xs={12} sm={6}>
-          <Card><Statistic title="超时未完成" value={overdueCount} valueStyle={{ color: 'var(--color-danger)' }} /></Card>
-        </Col>
-        <Col xs={12} sm={6}>
-          <Card><Statistic title="售后率" value={formatPercent(stats?.rate || 0)} /></Card>
-        </Col>
-        <Col xs={12} sm={6}>
-          <Card><Statistic title="平均处理时长" value={stats?.avgDurationHours || 0} suffix="小时" /></Card>
-        </Col>
-      </Row>
+      <StatsCards
+        totalCount={stats?.totalCount || 0}
+        pendingCount={stats?.pendingCount || 0}
+        overdueCount={overdueCount}
+        rate={stats?.rate || 0}
+        avgDurationHours={stats?.avgDurationHours || 0}
+      />
 
       <Card
         title="售后工单"
@@ -333,135 +299,99 @@ export default function AfterSalesList() {
           />
         ) : (
           <>
-        <Tabs
-          activeKey={statusFilter}
-          onChange={setStatusFilter}
-          items={[
-            { key: 'all', label: `全部 (${data.length})` },
-            { key: 'overdue', label: <span style={{ color: 'var(--color-danger)' }}>超时 ({overdueCount})</span> },
-            { key: 'pending', label: <span style={{ color: 'var(--color-danger)' }}>待处理 ({countByStatus('pending')})</span> },
-            { key: 'processing', label: <span style={{ color: 'var(--theme-primary)' }}>处理中 ({countByStatus('processing')})</span> },
-            { key: 'resolved', label: <span style={{ color: 'var(--color-success)' }}>已解决 ({countByStatus('resolved')})</span> },
-            { key: 'closed', label: `已关闭 (${countByStatus('closed')})` },
-          ]}
-          style={{ marginBottom: 16 }}
-        />
-        <Row gutter={12} style={{ marginBottom: 16 }}>
-          <Col xs={24} sm={10}>
-            <Input
-              allowClear
-              prefix={<SearchOutlined />}
-              placeholder="搜索问题描述 / 商品名称 / 客户昵称"
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
+            <Tabs
+              activeKey={statusFilter}
+              onChange={setStatusFilter}
+              items={[
+                { key: 'all', label: `全部 (${data.length})` },
+                { key: 'overdue', label: <span style={{ color: 'var(--color-danger)' }}>超时 ({overdueCount})</span> },
+                { key: 'pending', label: <span style={{ color: 'var(--color-danger)' }}>待处理 ({countByStatus('pending')})</span> },
+                { key: 'processing', label: <span style={{ color: 'var(--theme-primary)' }}>处理中 ({countByStatus('processing')})</span> },
+                { key: 'resolved', label: <span style={{ color: 'var(--color-success)' }}>已解决 ({countByStatus('resolved')})</span> },
+                { key: 'closed', label: `已关闭 (${countByStatus('closed')})` },
+              ]}
+              style={{ marginBottom: 16 }}
             />
-          </Col>
-          <Col xs={24} sm={10}>
-            <DatePicker.RangePicker
-              style={{ width: '100%' }}
-              value={dateRange}
-              onChange={(v) => setDateRange(v as [dayjs.Dayjs, dayjs.Dayjs] | null)}
-              placeholder={['创建开始', '创建结束']}
+            <Row gutter={12} style={{ marginBottom: 16 }}>
+              <Col xs={24} sm={10}>
+                <Input
+                  allowClear
+                  prefix={<SearchOutlined />}
+                  placeholder="搜索问题描述 / 商品名称 / 客户昵称"
+                  value={keyword}
+                  onChange={(e) => setKeyword(e.target.value)}
+                />
+              </Col>
+              <Col xs={24} sm={10}>
+                <DatePicker.RangePicker
+                  style={{ width: '100%' }}
+                  value={dateRange}
+                  onChange={(v) => setDateRange(v as [dayjs.Dayjs, dayjs.Dayjs] | null)}
+                  placeholder={['创建开始', '创建结束']}
+                />
+              </Col>
+              <Col xs={24} sm={4}>
+                <Button
+                  block
+                  onClick={() => { setKeyword(''); setDateRange(null); }}
+                  disabled={!keyword && !dateRange}
+                >重置</Button>
+              </Col>
+            </Row>
+            <Table
+              rowKey="id"
+              loading={loading}
+              dataSource={filteredData}
+              columns={columns}
+              size="middle"
+              onRow={(record) => ({
+                style: record.id === focusedTicketId ? { background: 'var(--color-warning-light)' } : undefined,
+              })}
+              locale={{
+                emptyText: data.length === 0 ? (
+                  <Empty
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    description={
+                      <span>
+                        暂无售后记录
+                        <Button type="link" size="small" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
+                          创建工单
+                        </Button>
+                      </span>
+                    }
+                  />
+                ) : (
+                  <Empty description="未匹配到符合条件的售后记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                ),
+              }}
+              pagination={{
+                current: currentPage,
+                pageSize: AFTER_SALES_PAGE_SIZE,
+                onChange: (page) => setCurrentPage(page),
+              }}
             />
-          </Col>
-          <Col xs={24} sm={4}>
-            <Button
-              block
-              onClick={() => { setKeyword(''); setDateRange(null); }}
-              disabled={!keyword && !dateRange}
-            >重置</Button>
-          </Col>
-        </Row>
-        <Table
-          rowKey="id"
-          loading={loading}
-          dataSource={filteredData}
-          columns={columns}
-          size="middle"
-          onRow={(record) => ({
-            style: record.id === focusedTicketId ? { background: 'var(--color-warning-light)' } : undefined,
-          })}
-          locale={{
-            emptyText: data.length === 0 ? (
-              <Empty
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description={
-                  <span>
-                    暂无售后记录
-                    <Button type="link" size="small" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
-                      创建工单
-                    </Button>
-                  </span>
-                }
-              />
-            ) : (
-              <Empty description="未匹配到符合条件的售后记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-            ),
-          }}
-          pagination={{
-            current: currentPage,
-            pageSize: PAGE_SIZE,
-            onChange: (page) => setCurrentPage(page),
-          }}
-        />
           </>
         )}
       </Card>
 
-      {topIssues.length > 0 && (
-        <Card title="高频问题商品 TOP5" style={{ marginTop: 16 }}>
-          {topIssues.map((i, idx) => (
-            <div key={i.productName} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--color-border)' }}>
-              <span>{idx + 1}. {i.productName}</span>
-              <Tag color="orange">{i.count} 次</Tag>
-            </div>
-          ))}
-        </Card>
-      )}
+      <TopIssuesCard issues={topIssues} />
 
-      <Modal title="创建售后工单" open={createOpen} onCancel={() => setCreateOpen(false)} onOk={handleCreate} okText="创建">
-        <div style={{ marginBottom: 12 }}>
-          <div style={{ marginBottom: 4 }}>关联交易</div>
-          <Select
-            style={{ width: '100%' }}
-            placeholder="选择交易"
-            value={createForm.transaction_id}
-            onChange={(v) => setCreateForm({ ...createForm, transaction_id: v })}
-            showSearch
-            filterOption={(input, option) => (option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
-            options={Array.from(transactions.values()).map((t) => ({ value: t.id, label: `${t.product_name} - ${formatDateTime(t.trade_at)}` }))}
-          />
-        </div>
-        <div>
-          <div style={{ marginBottom: 4 }}>问题描述</div>
-          <TextArea rows={4} value={createForm.issue_desc} onChange={(e) => setCreateForm({ ...createForm, issue_desc: e.target.value })} placeholder="描述客户反馈的问题" />
-        </div>
-        <div style={{ marginTop: 12 }}>
-          <div style={{ marginBottom: 4 }}>问题截图/附件</div>
-          <AttachmentUpload
-            value={createForm.attachments}
-            onChange={(ids) => setCreateForm({ ...createForm, attachments: ids })}
-            maxCount={6}
-          />
-        </div>
-      </Modal>
+      <CreateAfterSalesModal
+        open={createOpen}
+        form={createForm}
+        transactions={transactions}
+        onCancel={() => setCreateOpen(false)}
+        onChange={setCreateForm}
+        onOk={handleCreate}
+      />
 
-      <Modal title="标记为已解决" open={resolveOpen} onCancel={() => setResolveOpen(false)} onOk={handleResolve} okText="确认解决">
-        <div style={{ marginBottom: 12 }}>
-          <div style={{ marginBottom: 4 }}>解决方式</div>
-          <Select
-            style={{ width: '100%' }}
-            placeholder="选择解决方式"
-            value={resolveForm.type}
-            onChange={(v) => setResolveForm({ ...resolveForm, type: v })}
-            options={(Object.keys(solutionMap) as SolutionType[]).map((k) => ({ value: k, label: solutionMap[k] }))}
-          />
-        </div>
-        <div>
-          <div style={{ marginBottom: 4 }}>解决说明</div>
-          <TextArea rows={3} value={resolveForm.desc} onChange={(e) => setResolveForm({ ...resolveForm, desc: e.target.value })} placeholder="选填" />
-        </div>
-      </Modal>
+      <ResolveAfterSalesModal
+        open={resolveOpen}
+        form={resolveForm}
+        onCancel={() => setResolveOpen(false)}
+        onChange={setResolveForm}
+        onOk={handleResolve}
+      />
     </div>
   );
 }

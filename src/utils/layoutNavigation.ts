@@ -9,6 +9,19 @@ export interface LayoutNavigationItem {
   label: string;
 }
 
+export const LAYOUT_NAVIGATION_ROUTES = [
+  { key: '/', label: '首页' },
+  { key: '/transactions', label: '交易管理' },
+  { key: '/customers', label: '客户管理' },
+  { key: '/referral', label: '推荐链' },
+  { key: '/warranty', label: '质保监控' },
+  { key: '/after-sales', label: '售后管理' },
+  { key: '/finance', label: '财务报表' },
+  { key: '/send-mail', label: '发货邮件' },
+  { key: '/order-sync', label: '订单同步' },
+  { key: '/settings', label: '设置' },
+] as const;
+
 function renderIconWithBadge(icon: ReactNode, count: number) {
   if (count <= 0) return icon;
 

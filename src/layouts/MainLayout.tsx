@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Layout, Menu, Button, Drawer, Space, Tooltip, Grid, Badge } from 'antd';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import {
@@ -17,30 +17,36 @@ import {
   MailOutlined,
   SearchOutlined,
   CloudSyncOutlined,
+  MenuOutlined,
 } from '@ant-design/icons';
 import { useAppStore } from '@/store/useAppStore';
 import { runAllReminderChecks } from '@/services/notificationService';
 import GlobalSearch, { invalidateSearchCache } from '@/components/GlobalSearch';
 import NotificationCenter from '@/components/NotificationCenter';
 import { getNavigationBadgeCount } from '@/utils/navigationBadges';
-import { buildLayoutMenuItems } from '@/utils/layoutNavigation';
+import { buildLayoutMenuItems, LAYOUT_NAVIGATION_ROUTES } from '@/utils/layoutNavigation';
 import { REMINDER_CHECK_INTERVAL_MS, SCROLL_TOP_THRESHOLD } from '@/config/constants';
 
 const { Sider, Header, Content } = Layout;
 const { useBreakpoint } = Grid;
 
-const menuItems = [
-  { key: '/', icon: <HomeOutlined />, label: '首页' },
-  { key: '/transactions', icon: <FileTextOutlined />, label: '交易管理' },
-  { key: '/customers', icon: <TeamOutlined />, label: '客户管理' },
-  { key: '/referral', icon: <ShareAltOutlined />, label: '推荐链' },
-  { key: '/warranty', icon: <SafetyCertificateOutlined />, label: '质保监控' },
-  { key: '/after-sales', icon: <ToolOutlined />, label: '售后管理' },
-  { key: '/finance', icon: <BarChartOutlined />, label: '财务报表' },
-  { key: '/send-mail', icon: <MailOutlined />, label: '发货邮件' },
-  { key: '/order-sync', icon: <CloudSyncOutlined />, label: '订单同步' },
-  { key: '/settings', icon: <SettingOutlined />, label: '设置' },
-];
+const navigationIcons = {
+  '/': <HomeOutlined />,
+  '/transactions': <FileTextOutlined />,
+  '/customers': <TeamOutlined />,
+  '/referral': <ShareAltOutlined />,
+  '/warranty': <SafetyCertificateOutlined />,
+  '/after-sales': <ToolOutlined />,
+  '/finance': <BarChartOutlined />,
+  '/send-mail': <MailOutlined />,
+  '/order-sync': <CloudSyncOutlined />,
+  '/settings': <SettingOutlined />,
+} satisfies Record<(typeof LAYOUT_NAVIGATION_ROUTES)[number]['key'], ReactNode>;
+
+const menuItems = LAYOUT_NAVIGATION_ROUTES.map((item) => ({
+  ...item,
+  icon: navigationIcons[item.key],
+}));
 
 // 移动端底部导航项（精简为 5 个主要功能）
 const mobileNavItems = [
@@ -59,6 +65,7 @@ export default function MainLayout() {
   const { collapsed, setCollapsed, refreshAll, pendingSummary } = useAppStore();
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [navigationOpen, setNavigationOpen] = useState(false);
 
   // 移动端自动折叠侧边栏
   useEffect(() => {
@@ -69,9 +76,9 @@ export default function MainLayout() {
 
   useEffect(() => {
     refreshAll();
-    runAllReminderChecks().then(() => refreshAll());
+    runAllReminderChecks().then(() => refreshAll()).catch(() => {});
     const timer = setInterval(() => {
-      runAllReminderChecks().then(() => refreshAll());
+      runAllReminderChecks().then(() => refreshAll()).catch(() => {});
     }, REMINDER_CHECK_INTERVAL_MS);
     return () => clearInterval(timer);
   }, [refreshAll]);
@@ -82,6 +89,7 @@ export default function MainLayout() {
     invalidateSearchCache();
     // 页面切换时关闭移动端搜索抽屉
     setSearchOpen(false);
+    setNavigationOpen(false);
   }, [location.pathname, refreshAll]);
 
   // 滚动监听 - 控制回到顶部按钮
@@ -101,6 +109,7 @@ export default function MainLayout() {
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
+      <a className="skip-link" href="#main-content">跳到主要内容</a>
       {!isMobile && (
         <Sider
           trigger={null}
@@ -124,13 +133,15 @@ export default function MainLayout() {
             </div>
             {!collapsed && <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--color-dark)', letterSpacing: 0.3 }}>闲鱼记账助手</span>}
           </div>
-          <Menu
-            mode="inline"
-            selectedKeys={[selectedKey]}
-            items={buildLayoutMenuItems(menuItems, collapsed, pendingSummary)}
-            onClick={({ key }) => navigate(key)}
-            style={{ borderRight: 'none', marginTop: 8, fontSize: 14 }}
-          />
+          <nav aria-label="主导航">
+            <Menu
+              mode="inline"
+              selectedKeys={[selectedKey]}
+              items={buildLayoutMenuItems(menuItems, collapsed, pendingSummary)}
+              onClick={({ key }) => navigate(key)}
+              style={{ borderRight: 'none', marginTop: 8, fontSize: 14 }}
+            />
+          </nav>
         </Sider>
       )}
       <Layout>
@@ -150,12 +161,22 @@ export default function MainLayout() {
           }}
         >
           <Space size={8}>
+            {isMobile && (
+              <Button
+                type="text"
+                shape="circle"
+                size="small"
+                icon={<MenuOutlined />}
+                aria-label="打开全部导航"
+                onClick={() => setNavigationOpen(true)}
+              />
+            )}
             {!isMobile && (
               <Button type="text" aria-label={collapsed ? '展开侧边栏' : '收起侧边栏'} onClick={() => setCollapsed(!collapsed)} icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />} />
             )}
-            <span style={{ color: 'var(--color-text-secondary)', fontSize: 13 }} className="text-ellipsis">
+            <h1 style={{ color: 'var(--color-text-secondary)', fontSize: 13, fontWeight: 500, margin: 0 }} className="text-ellipsis">
               {menuItems.find((m) => m.key === selectedKey)?.label || '首页'}
-            </span>
+            </h1>
           </Space>
           <Space size={isMobile ? 4 : 12}>
             {!isMobile && <GlobalSearch />}
@@ -175,7 +196,12 @@ export default function MainLayout() {
             )}
           </Space>
         </Header>
-        <Content style={{ padding: isMobile ? 12 : 20, overflow: 'auto', paddingBottom: isMobile ? 68 : 20 }}>
+        <Content
+          id="main-content"
+          tabIndex={-1}
+          className={isMobile ? 'mobile-content' : undefined}
+          style={{ padding: isMobile ? 12 : 20, overflow: 'auto', paddingBottom: isMobile ? 68 : 20 }}
+        >
           <div key={location.pathname} className="page-fade-enter">
             <Outlet />
           </div>
@@ -184,7 +210,7 @@ export default function MainLayout() {
 
       {/* 移动端底部导航 */}
       {isMobile && (
-        <div className="mobile-bottom-nav">
+        <nav className="mobile-bottom-nav" aria-label="移动快捷导航">
           {mobileNavItems.map((item) => {
             const isActive = selectedKey === item.key;
             return (
@@ -203,7 +229,7 @@ export default function MainLayout() {
               </button>
             );
           })}
-        </div>
+        </nav>
       )}
 
       {/* 回到顶部按钮 */}
@@ -214,6 +240,29 @@ export default function MainLayout() {
       )}
 
       {/* 移动端搜索抽屉 */}
+      <Drawer
+        title="全部导航"
+        placement="left"
+        open={navigationOpen}
+        onClose={() => setNavigationOpen(false)}
+        width={280}
+        className="mobile-navigation-drawer"
+        bodyStyle={{ padding: '8px 0', overscrollBehavior: 'contain' }}
+      >
+        <nav aria-label="全部导航">
+          <Menu
+            mode="inline"
+            selectedKeys={[selectedKey]}
+            items={buildLayoutMenuItems(menuItems, false, pendingSummary)}
+            onClick={({ key }) => {
+              setNavigationOpen(false);
+              navigate(key);
+            }}
+            style={{ borderInlineEnd: 'none' }}
+          />
+        </nav>
+      </Drawer>
+
       <Drawer
         title="搜索"
         placement="top"

@@ -6,7 +6,6 @@ E6 新增：从后端文件级 SQLite 备份（data/backups/daily/*.db）恢复�
 
 恢复是不可逆操作：会覆盖当前数据库。限流 3 次/分钟，防止误触发。
 """
-from __future__ import annotations
 
 import asyncio
 import json

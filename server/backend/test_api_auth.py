@@ -13,6 +13,7 @@ import unittest
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app.config import settings as app_settings
 from app.main import app
 from app.security import token as token_module
 
@@ -63,6 +64,17 @@ class ApiAuthMiddlewareTests(unittest.IsolatedAsyncioTestCase):
             response = await client.get("/api/transactions")
         self.assertEqual(response.status_code, 401)
         self.assertIn("X-API-Token", response.json()["detail"])
+
+    async def test_business_endpoint_401_includes_cors_headers(self):
+        origin = app_settings.cors_origin_list[0]
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.get(
+                "/api/transactions", headers={"Origin": origin}
+            )
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.headers["access-control-allow-origin"], origin)
 
     async def test_business_endpoint_with_wrong_token_returns_401(self):
         async with AsyncClient(

@@ -436,7 +436,7 @@ export default function BackupRestoreTab({ onDataReset }: BackupRestoreTabProps)
           size="small"
           pagination={false}
           scroll={{ x: 'max-content' }}
-          locale={{ emptyText: '暂无服务器备份（备份调度器每日自动生成，可在 Metrics 页查看最近备份时间）' }}
+          locale={{ emptyText: '暂无服务器备份（备份调度器每日自动生成，可在「运行状态」查看最近备份时间）' }}
         />
       </Card>
     </Space>

@@ -1,60 +1,22 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Card, Row, Col, List, Tag, Empty, Skeleton, Button, Result } from 'antd';
+import { Card, Row, Col, Skeleton, Button, Result } from 'antd';
 import { useNavigate } from 'react-router-dom';
-import {
-  WarningOutlined,
-  TrophyOutlined,
-} from '@ant-design/icons';
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import StatCard from '@/components/StatCard';
 import { IncomeIcon, ProfitIcon, TradeIcon, NewCustomerIcon, WarrantyIcon, ToolIcon, RebateIcon } from '@/components/RefinedIcons';
-import WarrantyTag from '@/components/WarrantyTag';
 import { getFinanceOverview, getTrend, getNewCustomerCount, getNewCustomerCountByRange, getProductProfitStats, getChannelBreakdown } from '@/services/financeService';
 import { getReferrerRankings } from '@/services/referralService';
 import { getUrgentTransactions } from '@/services/warrantyService';
 import { listTransactions } from '@/services/transactionService';
 import { listCustomers, getChurnRiskStats } from '@/services/customerService';
-import { formatMoney, formatPercent, channelLabel, channelColorMap } from '@/utils/format';
-import { formatDate } from '@/utils/date';
 import { getMonthRange, getPrevMonthRange } from '@/utils/date';
 import { useAppStore } from '@/store/useAppStore';
-import { useChartColors } from '@/hooks/useChartColors';
 import type { FinanceOverview, TrendPoint, ReferrerRanking, Transaction, Customer, ProductProfitStat, ChannelBreakdownItem } from '@/types';
-
-/** 仪表盘告警统计卡（质保到期/待处理售后/待结算返利 共用样式） */
-function AlertStatCard({ icon, label, value, variant, onClick }: {
-  icon: React.ReactNode;
-  label: string;
-  value: number | string;
-  variant: 'danger' | 'warning' | 'success';
-  onClick: () => void;
-}) {
-  const palette = {
-    danger: { light: 'var(--color-danger-light)', border: 'var(--color-danger-border)', color: 'var(--color-danger)' },
-    warning: { light: 'var(--color-warning-light)', border: 'var(--color-warning-border)', color: 'var(--theme-primary)' },
-    success: { light: 'var(--color-success-light)', border: 'var(--color-success-border)', color: 'var(--color-success)' },
-  }[variant];
-  return (
-    <Card hoverable onClick={onClick}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <div style={{
-          width: 44, height: 44, borderRadius: 12,
-          background: `linear-gradient(135deg, ${palette.light} 0%, ${palette.border} 100%)`,
-          color: palette.color,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          border: `1px solid ${palette.border}`,
-          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.5)',
-        }}>
-          {icon}
-        </div>
-        <div>
-          <div style={{ color: 'var(--color-text-secondary)', fontSize: 13 }}>{label}</div>
-          <div style={{ fontSize: 24, fontWeight: 600, color: palette.color, lineHeight: 1.2 }} className="tabular-nums">{value}</div>
-        </div>
-      </div>
-    </Card>
-  );
-}
+import AlertStatCard from './dashboard/AlertStatCard';
+import TrendChart from './dashboard/TrendChart';
+import DashboardLists from './dashboard/DashboardLists';
+import ChannelBreakdown from './dashboard/ChannelBreakdown';
+import UrgentWarrantyTrades from './dashboard/UrgentWarrantyTrades';
+import CustomerStats from './dashboard/CustomerStats';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -78,9 +40,6 @@ export default function Dashboard() {
     () => getChurnRiskStats(Array.from(customers.values()), allTrades),
     [customers, allTrades]
   );
-
-  // 深色模式下图表颜色适配（SVG 属性不支持 CSS var()，需通过 JS 动态绑定字符串值）
-  const chartColors = useChartColors();
 
   useEffect(() => {
     loadData();
@@ -164,347 +123,55 @@ export default function Dashboard() {
     <div>
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} lg={6}>
-          <StatCard title="本月总收入" value={overview.totalIncome} change={overview.incomeChange} icon={<IncomeIcon />} onClick={() => navigate('/finance')} />
+          <StatCard title="本月总收入" value={overview.totalIncome} change={overview.incomeChange} icon={<IncomeIcon />} to="/finance" />
         </Col>
         <Col xs={24} sm={12} lg={6}>
-          <StatCard title="本月净利润" value={overview.totalProfit} change={overview.profitChange} icon={<ProfitIcon />} color="var(--color-success)" onClick={() => navigate('/finance')} />
+          <StatCard title="本月净利润" value={overview.totalProfit} change={overview.profitChange} icon={<ProfitIcon />} color="var(--color-success)" to="/finance" />
         </Col>
         <Col xs={24} sm={12} lg={6}>
-          <StatCard title="交易笔数" value={overview.tradeCount} precision={0} prefix="" change={overview.tradeCountChange} icon={<TradeIcon />} color="var(--color-info)" onClick={() => navigate('/transactions')} />
+          <StatCard title="交易笔数" value={overview.tradeCount} precision={0} prefix="" change={overview.tradeCountChange} icon={<TradeIcon />} color="var(--color-info)" to="/transactions" />
         </Col>
         <Col xs={24} sm={12} lg={6}>
-          <StatCard title="本月新客户" value={newCustomers} precision={0} prefix="" change={prevNewCustomers > 0 ? (newCustomers - prevNewCustomers) / prevNewCustomers : 0} icon={<NewCustomerIcon />} color="var(--color-purple)" onClick={() => navigate('/customers')} />
+          <StatCard title="本月新客户" value={newCustomers} precision={0} prefix="" change={prevNewCustomers > 0 ? (newCustomers - prevNewCustomers) / prevNewCustomers : 0} icon={<NewCustomerIcon />} color="var(--color-purple)" to="/customers" />
         </Col>
       </Row>
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24} lg={8}>
-          <AlertStatCard icon={<WarrantyIcon />} label="质保即将到期" value={pendingSummary.warrantyUrgent} variant="danger" onClick={() => navigate('/warranty')} />
+          <AlertStatCard icon={<WarrantyIcon />} label="质保即将到期" value={pendingSummary.warrantyUrgent} variant="danger" to="/warranty" />
         </Col>
         <Col xs={24} lg={8}>
-          <AlertStatCard icon={<ToolIcon />} label="待处理售后" value={pendingSummary.afterSalesPending} variant="warning" onClick={() => navigate('/after-sales')} />
+          <AlertStatCard icon={<ToolIcon />} label="待处理售后" value={pendingSummary.afterSalesPending} variant="warning" to="/after-sales" />
         </Col>
         <Col xs={24} lg={8}>
-          <AlertStatCard icon={<RebateIcon />} label="待结算返利" value={pendingSummary.rebatePending} variant="success" onClick={() => navigate('/finance')} />
+          <AlertStatCard icon={<RebateIcon />} label="待结算返利" value={pendingSummary.rebatePending} variant="success" to="/finance" />
         </Col>
       </Row>
 
-      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col xs={24} lg={16}>
-          <Card
-            title="交易趋势"
-            extra={
-              <div style={{ display: 'flex', gap: 4 }}>
-                {[7, 30, 90].map((d) => (
-                  <Button key={d} size="small" type={trendDays === d ? 'primary' : 'default'} onClick={() => setTrendDays(d)}>
-                    {d}天
-                  </Button>
-                ))}
-              </div>
-            }
-          >
-            <ResponsiveContainer width="100%" height={280}>
-              <AreaChart data={trend}>
-                <defs>
-                  <linearGradient id="colorIncome" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={chartColors.income} stopOpacity={0.2} />
-                    <stop offset="95%" stopColor={chartColors.income} stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="colorProfit" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={chartColors.profit} stopOpacity={0.2} />
-                    <stop offset="95%" stopColor={chartColors.profit} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke={chartColors.grid} vertical={false} />
-                <XAxis dataKey="date" tick={{ fontSize: 11, fill: chartColors.axisText }} axisLine={{ stroke: chartColors.axisLine }} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: chartColors.axisText }} axisLine={false} tickLine={false} />
-                <Tooltip
-                  formatter={(v: number) => formatMoney(v)}
-                  contentStyle={{
-                    background: chartColors.tooltipBg,
-                    color: chartColors.tooltipText,
-                    border: `1px solid ${chartColors.tooltipBorder}`,
-                    borderRadius: 6,
-                  }}
-                />
-                <Area type="monotone" dataKey="income" name="收入" stroke={chartColors.income} strokeWidth={2} fill="url(#colorIncome)" />
-                <Area type="monotone" dataKey="profit" name="利润" stroke={chartColors.profit} strokeWidth={2} fill="url(#colorProfit)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </Card>
-        </Col>
-        <Col xs={24} lg={8}>
-          <Card title={<span><TrophyOutlined style={{ color: 'var(--color-warning)', marginRight: 8 }} />最佳介绍人</span>} extra={<Button type="link" size="small" onClick={() => navigate('/referral')}>查看全部</Button>}>
-            {rankings.length === 0 ? (
-              <Empty description="暂无介绍数据" />
-            ) : (
-              <List
-                dataSource={rankings}
-                renderItem={(r, idx) => (
-                  <List.Item onClick={() => navigate(`/customers/${r.referrerId}`)} style={{ cursor: 'pointer' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <span
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            width: 22,
-                            height: 22,
-                            borderRadius: '50%',
-                            background: idx < 3 ? 'var(--theme-primary)' : 'var(--color-border)',
-                            color: idx < 3 ? '#fff' : 'var(--color-text-secondary)',
-                            fontSize: 12,
-                            fontWeight: 600,
-                          }}
-                        >
-                          {idx + 1}
-                        </span>
-                        <span style={{ fontWeight: 500 }}>{r.nickname}</span>
-                      </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>介绍 {r.introducedCount} 人</div>
-                        <div style={{ color: 'var(--theme-primary)', fontWeight: 600 }} className="tabular-nums">{formatMoney(r.broughtRevenue)}</div>
-                      </div>
-                    </div>
-                  </List.Item>
-                )}
-              />
-            )}
-          </Card>
-        </Col>
-      </Row>
+      <TrendChart
+        trend={trend}
+        trendDays={trendDays}
+        onTrendDaysChange={setTrendDays}
+        rankings={rankings}
+        onNavigate={navigate}
+      />
 
-      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col xs={24} lg={12}>
-          <Card title="最近交易" size="small">
-            <List
-              size="small"
-              dataSource={recentTrades}
-              locale={{ emptyText: '暂无交易' }}
-              renderItem={(t) => {
-                const c = customers.get(t.customer_id);
-                return (
-                  <List.Item
-                    style={{ cursor: 'pointer', padding: '8px 0' }}
-                    onClick={() => navigate(`/transactions/${t.id}`)}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {t.product_name}
-                        </div>
-                        <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
-                          {c?.xianyu_nickname || '-'} · {formatDate(t.trade_at)}
-                        </div>
-                      </div>
-                      <div style={{ textAlign: 'right', marginLeft: 12 }}>
-                        <div style={{ color: 'var(--color-dark)', fontWeight: 600 }} className="tabular-nums">
-                          {formatMoney(t.sale_price)}
-                        </div>
-                        <div style={{ fontSize: 12, color: 'var(--color-success)' }} className="tabular-nums">
-                          利润 {formatMoney(t.profit)}
-                        </div>
-                      </div>
-                    </div>
-                  </List.Item>
-                );
-              }}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} lg={12}>
-          <Card
-            title="本月商品销售排行"
-            size="small"
-            extra={<Button type="link" size="small" onClick={() => navigate('/finance')}>查看全部</Button>}
-          >
-            {productStats.length === 0 ? (
-              <Empty description="本月暂无销售数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-            ) : (
-              <List
-                size="small"
-                dataSource={productStats}
-                renderItem={(p, idx) => (
-                  <List.Item style={{ padding: '8px 0' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
-                        <span
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            width: 22,
-                            height: 22,
-                            borderRadius: '50%',
-                            background: idx < 3 ? 'var(--theme-primary)' : 'var(--color-border)',
-                            color: idx < 3 ? '#fff' : 'var(--color-text-secondary)',
-                            fontSize: 12,
-                            fontWeight: 600,
-                            flexShrink: 0,
-                          }}
-                        >
-                          {idx + 1}
-                        </span>
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {p.productName}
-                          </div>
-                          <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
-                            {p.count} 笔 · 利润率 {formatPercent(p.profitRate)}
-                          </div>
-                        </div>
-                      </div>
-                      <div style={{ textAlign: 'right', marginLeft: 12 }}>
-                        <div style={{ color: 'var(--color-success)', fontWeight: 600 }} className="tabular-nums">
-                          {formatMoney(p.totalProfit)}
-                        </div>
-                        <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }} className="tabular-nums">
-                          收入 {formatMoney(p.totalIncome)}
-                        </div>
-                      </div>
-                    </div>
-                  </List.Item>
-                )}
-              />
-            )}
-          </Card>
-        </Col>
-      </Row>
+      <DashboardLists
+        recentTrades={recentTrades}
+        customers={customers}
+        productStats={productStats}
+        onNavigate={navigate}
+      />
 
-      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col xs={24} lg={24}>
-          <Card title="本月渠道收入对比" size="small">
-            {channelBreakdown.length === 0 ? (
-              <Empty description="本月暂无交易数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-            ) : (
-              <Row gutter={24}>
-                {channelBreakdown.map((ch) => {
-                  const maxIncome = Math.max(...channelBreakdown.map((b) => b.income), 1);
-                  const pct = Math.max((ch.income / maxIncome) * 100, 2);
-                  // 渠道条颜色：根据 channelColorMap 映射到 CSS 变量，未匹配走中性色
-                  const channelBarColorMap: Record<string, string> = {
-                    blue: 'var(--theme-primary)',
-                    green: 'var(--color-success)',
-                  };
-                  const barColor = channelBarColorMap[channelColorMap[ch.channel]] ?? 'var(--color-text-tertiary)';
-                  return (
-                    <Col xs={24} sm={8} key={ch.channel}>
-                      <div style={{ marginBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Tag color={channelColorMap[ch.channel] || 'default'}>{channelLabel(ch.channel)}</Tag>
-                        <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }} className="tabular-nums">{ch.count} 笔</span>
-                      </div>
-                      <div style={{ fontSize: 22, fontWeight: 600 }} className="tabular-nums">
-                        {formatMoney(ch.income)}
-                      </div>
-                      <div style={{ fontSize: 12, color: 'var(--color-success)', marginBottom: 8 }} className="tabular-nums">
-                        利润 {formatMoney(ch.profit)}
-                      </div>
-                      <div style={{ background: 'var(--color-bg)', height: 6, borderRadius: 3 }}>
-                        <div style={{
-                          width: `${pct}%`,
-                          height: '100%',
-                          borderRadius: 3,
-                          background: barColor,
-                          transition: 'width 0.3s ease',
-                        }} />
-                      </div>
-                    </Col>
-                  );
-                })}
-              </Row>
-            )}
-          </Card>
-        </Col>
-      </Row>
+      <ChannelBreakdown breakdown={channelBreakdown} />
 
-      {urgentTrades.length > 0 && (
-        <Card title={<span><WarningOutlined style={{ color: 'var(--color-danger)', marginRight: 8 }} />质保即将到期交易</span>} style={{ marginTop: 16 }}>
-          <List
-            dataSource={urgentTrades.slice(0, 5)}
-            renderItem={(t) => (
-              <List.Item
-                actions={[<Button type="link" size="small" onClick={() => navigate(`/transactions/${t.id}`)}>详情</Button>]}
-              >
-                <List.Item.Meta
-                  title={t.product_name}
-                  description={
-                    <span style={{ fontSize: 12 }}>
-                      到期: {formatDate(t.warranty_end, 'YYYY-MM-DD HH:mm')} <WarrantyTag warrantyEnd={t.warranty_end} status={t.status} />
-                    </span>
-                  }
-                />
-              </List.Item>
-            )}
-          />
-        </Card>
-      )}
+      <UrgentWarrantyTrades trades={urgentTrades} onNavigate={navigate} />
 
-      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col xs={24} lg={8}>
-          <Card title="客户等级分布" size="small">
-            <Row gutter={16}>
-              <Col span={6}>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: 24, fontWeight: 600, color: 'var(--color-dark)' }} className="tabular-nums">{customers.size}</div>
-                  <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>总客户</div>
-                </div>
-              </Col>
-              <Col span={6}>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: 24, fontWeight: 600, color: 'var(--color-text-secondary)' }} className="tabular-nums">
-                    {Array.from(customers.values()).filter((c) => c.level === 'normal').length}
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>普通</div>
-                </div>
-              </Col>
-              <Col span={6}>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: 24, fontWeight: 600, color: 'var(--color-warning)' }} className="tabular-nums">
-                    {Array.from(customers.values()).filter((c) => c.level === 'vip').length}
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>VIP</div>
-                </div>
-              </Col>
-              <Col span={6}>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: 24, fontWeight: 600, color: 'var(--color-danger)' }} className="tabular-nums">
-                    {Array.from(customers.values()).filter((c) => c.level === 'core').length}
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>核心</div>
-                </div>
-              </Col>
-            </Row>
-          </Card>
-        </Col>
-        <Col xs={24} lg={16}>
-          <Card title="黑名单与流失预警" size="small">
-            <Row gutter={16}>
-              <Col span={8}>
-                <div style={{ textAlign: 'center', padding: '8px 0' }}>
-                  <div style={{ fontSize: 24, fontWeight: 600, color: 'var(--color-danger)' }} className="tabular-nums">
-                    {churnStats.blacklistCount}
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>黑名单客户</div>
-                </div>
-              </Col>
-              <Col span={8}>
-                <div style={{ textAlign: 'center', padding: '8px 0' }}>
-                  <div style={{ fontSize: 24, fontWeight: 600, color: 'var(--theme-primary)' }} className="tabular-nums">
-                    {churnStats.churnRiskCount}
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>高价值流失预警</div>
-                </div>
-              </Col>
-              <Col span={8}>
-                <div style={{ textAlign: 'center', padding: '8px 0' }}>
-                  <Button type="link" onClick={() => navigate('/customers')} style={{ padding: 0 }}>管理客户 →</Button>
-                </div>
-              </Col>
-            </Row>
-          </Card>
-        </Col>
-      </Row>
+      <CustomerStats
+        customers={customers}
+        churnStats={churnStats}
+        onNavigate={navigate}
+      />
     </div>
   );
 }

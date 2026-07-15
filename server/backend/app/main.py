@@ -82,15 +82,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS: configured by CORS_ORIGINS, comma-separated.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=app_settings.cors_origin_list,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # P1-1 速率限制：注册 slowapi limiter + 异常处理 + 中间件
 app.state.limiter = security.limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -108,6 +99,11 @@ async def verify_api_token_middleware(request: Request, call_next):
     - 其余 /api/* 请求：必须携带有效 X-API-Token 头，否则 401
     """
     path = request.url.path
+    # OPTIONS 预检请求直接放行：浏览器 CORS 流程在实际请求前先发 OPTIONS，
+    # 此时无法携带 X-API-Token（浏览器尚未读取 sessionStorage 注入头），
+    # 若拦截会返回 401，前端表现为"无法连接后端服务"。
+    if request.method == "OPTIONS":
+        return await call_next(request)
     if not path.startswith("/api/"):
         return await call_next(request)
     if path in _PUBLIC_PATHS or path.startswith(_PUBLIC_PATH_PREFIXES[1]):
@@ -140,6 +136,16 @@ async def request_id_middleware(request: Request, call_next):
     response = await call_next(request)
     response.headers["X-Request-ID"] = rid
     return response
+
+
+# CORS 必须在认证中间件之后注册，使其位于外层并为 401 响应补齐跨域头。
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=app_settings.cors_origin_list,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/api/health", response_model=HealthResponse, tags=["system"])

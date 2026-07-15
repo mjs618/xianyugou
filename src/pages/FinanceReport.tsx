@@ -1,20 +1,20 @@
 import { useEffect, useState } from 'react';
-import { Card, Row, Col, DatePicker, Button, Table, Space, Segmented, message, Tag, Popconfirm, Spin, Empty, Modal, Form, Input, InputNumber, Select } from 'antd';
-import { DeleteOutlined, ExportOutlined, FileExcelOutlined, PlusOutlined } from '@ant-design/icons';
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell, Legend, BarChart, Bar } from 'recharts';
+import { Card, Row, Col, DatePicker, Button, Space, Segmented, message, Spin, Form } from 'antd';
+import { ExportOutlined, FileExcelOutlined, PlusOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { getFinanceOverviewByRange, getTrend, getProductProfitStats, getCustomerValueStats, getMonthlyComparison, getChannelBreakdown } from '@/services/financeService';
-import { createExpense, deleteExpense, listExpenses } from '@/services/expenseService';
+import { createExpense, listExpenses } from '@/services/expenseService';
 import { listTransactions, listByDateRange } from '@/services/transactionService';
-import { getPendingTotal, getTotalPaid, listRebates, markPaid, cancelRebate, batchPay } from '@/services/rebateService';
+import { getPendingTotal, getTotalPaid, listRebates } from '@/services/rebateService';
 import { listAfterSales } from '@/services/afterSalesService';
 import { exportTransactionsCSV, downloadFile, exportFinanceReportExcel, downloadBlob } from '@/utils/export';
-import { formatMoney, formatPercent, formatMoneyCompact, channelLabel } from '@/utils/format';
-import { formatDate } from '@/utils/date';
 import StatCard from '@/components/StatCard';
-import { IncomeIcon, ProfitIcon, TradeIcon, RebateIcon } from '@/components/RefinedIcons';
-import { useChartColors } from '@/hooks/useChartColors';
+import { IncomeIcon, ProfitIcon, TradeIcon } from '@/components/RefinedIcons';
 import type { FinanceOverview, TrendPoint, ProductProfitStat, CustomerValueStat, MonthlyComparisonPoint, RebateRecord, AfterSales, OperatingExpense, ChannelBreakdownItem, ChannelType } from '@/types';
+import FinanceCharts from './finance/FinanceCharts';
+import FinanceTables from './finance/FinanceTables';
+import RebatePanel, { RebateStats } from './finance/RebatePanel';
+import ExpenseModal from './finance/ExpenseModal';
 
 const { RangePicker } = DatePicker;
 
@@ -36,13 +36,9 @@ export default function FinanceReport() {
   const [customRange, setCustomRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
   const [channelFilter, setChannelFilter] = useState<'all' | ChannelType>('all');
   const [channelBreakdown, setChannelBreakdown] = useState<ChannelBreakdownItem[]>([]);
-  const [selectedRebateKeys, setSelectedRebateKeys] = useState<number[]>([]);
-  const [batchLoading, setBatchLoading] = useState(false);
   const [expenseModalOpen, setExpenseModalOpen] = useState(false);
   const [expenseSubmitting, setExpenseSubmitting] = useState(false);
   const [expenseForm] = Form.useForm();
-  // 深色模式下图表颜色适配（SVG 属性不支持 CSS var()，需通过 JS 动态绑定字符串值）
-  const chartColors = useChartColors();
 
   useEffect(() => {
     loadData();
@@ -72,7 +68,6 @@ export default function FinanceReport() {
     setLoading(true);
     try {
       const range = getDateRange();
-      // 概览跟随所选时间范围；自定义未选择时回退到本月
       const [rangeStart, rangeEnd] = range || [dayjs().startOf('month').toDate(), dayjs().endOf('month').toDate()];
       const channel = channelFilter === 'all' ? undefined : channelFilter;
       const [ov, tr, mc, ps, cs, rb, pt, pd, as, ex, cb] = await Promise.all([
@@ -119,7 +114,6 @@ export default function FinanceReport() {
     }
   };
 
-  // 导出多 Sheet 财务报表 Excel（收支总览 + 交易明细 + 商品排行 + 客户排行 + 返利记录）
   const handleExportExcel = async () => {
     if (!overview) {
       message.warning('报表数据尚未加载完成');
@@ -128,7 +122,6 @@ export default function FinanceReport() {
     const range = getDateRange();
     const [rangeStart, rangeEnd] = range || [dayjs().startOf('month').toDate(), dayjs().endOf('month').toDate()];
     try {
-      // 按当前所选周期过滤交易明细
       const txs = await listByDateRange(rangeStart, rangeEnd);
       const blob = await exportFinanceReportExcel({
         overview,
@@ -145,25 +138,6 @@ export default function FinanceReport() {
     } catch (err) {
       console.error('导出 Excel 失败:', err);
       message.error(err instanceof Error ? err.message : '导出 Excel 失败，请重试');
-    }
-  };
-
-  const handleBatchPay = async () => {
-    if (selectedRebateKeys.length === 0) return;
-    setBatchLoading(true);
-    try {
-      const result = await batchPay(selectedRebateKeys);
-      if (result.skipped > 0) {
-        message.warning(`已结算 ${result.updated} 笔，跳过 ${result.skipped} 笔非法状态`);
-      } else {
-        message.success(`已批量结算 ${result.updated} 笔返利`);
-      }
-      setSelectedRebateKeys([]);
-      loadData();
-    } catch {
-      message.error('批量结算失败');
-    } finally {
-      setBatchLoading(false);
     }
   };
 
@@ -199,17 +173,6 @@ export default function FinanceReport() {
     }
   };
 
-  // 售后解决方式分布（基于售后工单的 solution_type）
-  const solutionData = [
-    { name: '远程协助', value: afterSalesList.filter((a) => a.solution_type === 'remote').length },
-    { name: '重新发货', value: afterSalesList.filter((a) => a.solution_type === 'reship').length },
-    { name: '退款', value: afterSalesList.filter((a) => a.solution_type === 'refund').length },
-    { name: '其他', value: afterSalesList.filter((a) => a.solution_type === 'other').length },
-  ].filter((d) => d.value > 0);
-  const channelData = channelBreakdown
-    .filter((d) => d.income > 0)
-    .map((d) => ({ name: channelLabel(d.channel), value: d.income, profit: d.profit, count: d.count }));
-  const emptyText = <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />;
   const operatingExpenseTotal = overview?.operatingExpense ?? expenses.reduce((sum, item) => sum + item.amount, 0);
 
   if (loading) {
@@ -272,304 +235,41 @@ export default function FinanceReport() {
         </Row>
       </Card>
 
-      <Card title="销售渠道占比" style={{ marginTop: 16 }}>
-        {channelData.length > 0 ? (
-          <ResponsiveContainer width="100%" height={240}>
-            <PieChart>
-              <Pie data={channelData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
-                {channelData.map((_, idx) => (
-                  <Cell key={idx} fill={chartColors.pieColors[idx % chartColors.pieColors.length]} />
-                ))}
-              </Pie>
-              <Legend />
-              <Tooltip
-                formatter={(v: number, name: string) => {
-                  const item = channelData.find((d) => d.name === name);
-                  return [`${formatMoney(v)}（利润 ${formatMoney(item?.profit || 0)} · ${item?.count || 0} 笔）`, name];
-                }}
-                contentStyle={{
-                  background: chartColors.tooltipBg,
-                  color: chartColors.tooltipText,
-                  border: `1px solid ${chartColors.tooltipBorder}`,
-                  borderRadius: 6,
-                }}
-              />
-            </PieChart>
-          </ResponsiveContainer>
-        ) : (
-          <div style={{ textAlign: 'center', padding: 40, color: 'var(--color-text-secondary)' }}>暂无数据</div>
-        )}
-      </Card>
+      <FinanceCharts
+        trend={trend}
+        monthlyData={monthlyData}
+        channelBreakdown={channelBreakdown}
+        afterSalesList={afterSalesList}
+      />
 
-      <Card
-        title="运营支出明细"
-        style={{ marginTop: 16 }}
-        extra={<Button size="small" icon={<PlusOutlined />} onClick={openExpenseModal}>新增支出</Button>}
-      >
-        <Table
-          rowKey="id"
-          dataSource={expenses}
-          size="small"
-          pagination={{ pageSize: 8 }}
-          locale={{ emptyText }}
-          className="expense-detail-table"
-          scroll={{ x: 700 }}
-          columns={[
-            { title: '类型', dataIndex: 'category', width: 120, render: (v: string) => <Tag color={v === '擦亮' ? 'orange' : 'default'}>{v}</Tag> },
-            { title: '金额', dataIndex: 'amount', width: 120, render: (v: number) => <span style={{ color: 'var(--color-danger)', fontWeight: 600 }}>{formatMoney(v)}</span>, align: 'right' as const },
-            { title: '发生时间', dataIndex: 'occurred_at', width: 160, render: (v: Date) => formatDate(v) },
-            { title: '备注', dataIndex: 'notes', width: 200, ellipsis: true, render: (v?: string) => v || '-' },
-            {
-              title: '操作',
-              width: 80,
-              render: (_: unknown, r: OperatingExpense) => (
-                <Popconfirm
-                  title="确认删除这笔支出？"
-                  onConfirm={async () => {
-                    await deleteExpense(r.id);
-                    message.success('已删除');
-                    loadData();
-                  }}
-                >
-                  <Button size="small" danger icon={<DeleteOutlined />} />
-                </Popconfirm>
-              ),
-            },
-          ]}
+      <FinanceTables
+        products={products}
+        customers={customers}
+        expenses={expenses}
+        onReload={loadData}
+        onAddExpense={openExpenseModal}
+      />
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 16, marginTop: 16 }}>
+        <RebateStats rebates={rebates} pendingTotal={pendingTotal} paidTotal={paidTotal} />
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        <RebatePanel
+          rebates={rebates}
+          pendingTotal={pendingTotal}
+          paidTotal={paidTotal}
+          onReload={loadData}
         />
-      </Card>
+      </div>
 
-      <Card title="近30天利润趋势" style={{ marginTop: 16 }}>
-        <ResponsiveContainer width="100%" height={300}>
-          <AreaChart data={trend}>
-            <defs>
-              <linearGradient id="colorProfit2" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor={chartColors.profit} stopOpacity={0.2} />
-                <stop offset="95%" stopColor={chartColors.profit} stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke={chartColors.grid} vertical={false} />
-            <XAxis dataKey="date" tick={{ fontSize: 11, fill: chartColors.axisText }} axisLine={{ stroke: chartColors.axisLine }} tickLine={false} />
-            <YAxis tick={{ fontSize: 11, fill: chartColors.axisText }} tickFormatter={(v) => formatMoneyCompact(v)} axisLine={false} tickLine={false} />
-            <Tooltip
-              formatter={(v: number) => formatMoney(v)}
-              contentStyle={{
-                background: chartColors.tooltipBg,
-                color: chartColors.tooltipText,
-                border: `1px solid ${chartColors.tooltipBorder}`,
-                borderRadius: 6,
-              }}
-            />
-            <Area type="monotone" dataKey="profit" name="利润" stroke={chartColors.profit} strokeWidth={2} fill="url(#colorProfit2)" />
-          </AreaChart>
-        </ResponsiveContainer>
-      </Card>
-
-      <Card
-        title="月度收支对比"
-        style={{ marginTop: 16 }}
-        extra={<span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>最近 6 个月</span>}
-      >
-        <ResponsiveContainer width="100%" height={320}>
-          <BarChart data={monthlyData} barGap={4} barCategoryGap="20%">
-            <CartesianGrid strokeDasharray="3 3" stroke={chartColors.grid} vertical={false} />
-            <XAxis dataKey="month" tick={{ fontSize: 12, fill: chartColors.axisText }} axisLine={{ stroke: chartColors.axisLine }} tickLine={false} />
-            <YAxis tick={{ fontSize: 11, fill: chartColors.axisText }} tickFormatter={(v) => formatMoneyCompact(v)} axisLine={false} tickLine={false} />
-            <Tooltip
-              formatter={(v: number, name: string) => [formatMoney(v), name]}
-              labelFormatter={(label) => `${label} · ${monthlyData.find((d) => d.month === label)?.tradeCount || 0} 笔交易`}
-              contentStyle={{
-                background: chartColors.tooltipBg,
-                color: chartColors.tooltipText,
-                border: `1px solid ${chartColors.tooltipBorder}`,
-                borderRadius: 6,
-              }}
-            />
-            <Legend />
-            <Bar dataKey="income" name="收入" fill={chartColors.income} radius={[4, 4, 0, 0]} maxBarSize={48} />
-            <Bar dataKey="cost" name="成本" fill={chartColors.cost} radius={[4, 4, 0, 0]} maxBarSize={48} />
-            <Bar dataKey="profit" name="利润" fill={chartColors.profit} radius={[4, 4, 0, 0]} maxBarSize={48} />
-          </BarChart>
-        </ResponsiveContainer>
-      </Card>
-
-      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col xs={24} lg={12}>
-          <Card title="商品利润排行">
-            <Table
-              rowKey="productName"
-              dataSource={products}
-              size="small"
-              pagination={{ pageSize: 10 }}
-              locale={{ emptyText }}
-              columns={[
-                { title: '商品', dataIndex: 'productName', ellipsis: true },
-                { title: '笔数', dataIndex: 'count', width: 60, align: 'center' as const },
-                { title: '收入', dataIndex: 'totalIncome', width: 100, render: (v: number) => formatMoney(v), align: 'right' as const },
-                { title: '成本', dataIndex: 'totalCost', width: 100, render: (v: number) => formatMoney(v), align: 'right' as const },
-                { title: '利润', dataIndex: 'totalProfit', width: 100, render: (v: number) => <span style={{ color: 'var(--color-success)' }}>{formatMoney(v)}</span>, align: 'right' as const },
-                { title: '利润率', dataIndex: 'profitRate', width: 80, render: (v: number) => formatPercent(v), align: 'right' as const },
-              ]}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} lg={12}>
-          <Card title="客户消费排行">
-            <Table
-              rowKey="customerId"
-              dataSource={customers}
-              size="small"
-              pagination={{ pageSize: 10 }}
-              locale={{ emptyText }}
-              columns={[
-                { title: '客户', dataIndex: 'nickname', ellipsis: true },
-                { title: '笔数', dataIndex: 'tradeCount', width: 60, align: 'center' as const },
-                { title: '累计消费', dataIndex: 'totalSpent', width: 120, render: (v: number) => formatMoney(v), align: 'right' as const },
-                {
-                  title: '等级',
-                  dataIndex: 'level',
-                  width: 70,
-                  render: (l: string) => l === 'core' ? '核心' : l === 'vip' ? 'VIP' : '普通',
-                },
-              ]}
-            />
-          </Card>
-        </Col>
-      </Row>
-
-      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col xs={24} lg={12}>
-          <Card title="返利支出统计">
-            <Row gutter={16}>
-              <Col span={8}>
-                <StatCard title="累计返利" value={paidTotal} prefix="¥" icon={<RebateIcon />} color="var(--color-success)" />
-              </Col>
-              <Col span={8}>
-                <StatCard title="待结算" value={pendingTotal} prefix="¥" icon={<RebateIcon />} color="var(--theme-primary)" />
-              </Col>
-              <Col span={8}>
-                <StatCard title="返利笔数" value={rebates.length} precision={0} prefix="" icon={<RebateIcon />} color="var(--color-info)" />
-              </Col>
-            </Row>
-          </Card>
-        </Col>
-        <Col xs={24} lg={12}>
-          <Card title="售后解决方式分布">
-            {solutionData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={220}>
-                <PieChart>
-                  <Pie data={solutionData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
-                    {solutionData.map((_, idx) => (
-                      <Cell key={idx} fill={chartColors.pieColors[idx % chartColors.pieColors.length]} />
-                    ))}
-                  </Pie>
-                  <Legend />
-                  <Tooltip
-                    contentStyle={{
-                      background: chartColors.tooltipBg,
-                      color: chartColors.tooltipText,
-                      border: `1px solid ${chartColors.tooltipBorder}`,
-                      borderRadius: 6,
-                    }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div style={{ textAlign: 'center', padding: 40, color: 'var(--color-text-secondary)' }}>暂无数据</div>
-            )}
-          </Card>
-        </Col>
-      </Row>
-
-      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col span={24}>
-          <Card
-            title="返利结算"
-            extra={
-              <Space>
-                {selectedRebateKeys.length > 0 && (
-                  <Popconfirm title={`确认批量结算选中的 ${selectedRebateKeys.length} 笔返利？`} onConfirm={handleBatchPay}>
-                    <Button type="primary" loading={batchLoading}>批量结算（{selectedRebateKeys.length}）</Button>
-                  </Popconfirm>
-                )}
-                <span style={{ color: 'var(--color-text-secondary)' }}>待结算 {pendingTotal} 元</span>
-              </Space>
-            }
-          >
-            <Table
-              rowKey="id"
-              loading={loading}
-              dataSource={rebates}
-              size="small"
-              pagination={{ pageSize: 10 }}
-              locale={{ emptyText }}
-              rowSelection={{
-                selectedRowKeys: selectedRebateKeys,
-                onChange: (keys) => setSelectedRebateKeys(keys as number[]),
-                getCheckboxProps: (r: RebateRecord) => ({ disabled: r.status !== 'pending' }),
-              }}
-              columns={[
-                { title: '介绍人ID', dataIndex: 'referrer_id', width: 90 },
-                { title: '买家ID', dataIndex: 'buyer_id', width: 90 },
-                { title: '返利金额', dataIndex: 'amount', width: 100, render: (v: number) => <span style={{ color: 'var(--theme-primary)', fontWeight: 600 }}>{formatMoney(v)}</span>, align: 'right' as const },
-                { title: '比例', dataIndex: 'rate', width: 70, render: (v: number) => `${Math.round(v * 100)}%`, align: 'center' as const },
-                { title: '状态', dataIndex: 'status', width: 90, render: (s: string) => {
-                  const map: Record<string, { label: string; color: string }> = { pending: { label: '待结算', color: 'orange' }, paid: { label: '已支付', color: 'green' }, cancelled: { label: '已取消', color: 'default' } };
-                  return <Tag color={map[s].color}>{map[s].label}</Tag>;
-                }},
-                { title: '创建时间', dataIndex: 'created_at', width: 140, render: (v: Date) => formatDate(v) },
-                { title: '支付时间', dataIndex: 'paid_at', width: 140, render: (v?: Date) => v ? formatDate(v) : '-' },
-                { title: '操作', width: 140, render: (_: unknown, r: RebateRecord) => (
-                  <Space size={4}>
-                    {r.status === 'pending' && (
-                      <>
-                        <Popconfirm title="确认标记为已支付？" onConfirm={async () => { await markPaid(r.id!); message.success('已标记为已支付'); loadData(); }}>
-                          <Button size="small" type="primary">结算</Button>
-                        </Popconfirm>
-                        <Popconfirm title="确认取消该返利？" onConfirm={async () => { await cancelRebate(r.id!); message.success('已取消'); loadData(); }}>
-                          <Button size="small" danger>取消</Button>
-                        </Popconfirm>
-                      </>
-                    )}
-                  </Space>
-                )},
-              ]}
-            />
-          </Card>
-        </Col>
-      </Row>
-
-      <Modal
-        title="记录运营支出"
+      <ExpenseModal
         open={expenseModalOpen}
+        form={expenseForm}
+        submitting={expenseSubmitting}
         onOk={handleCreateExpense}
         onCancel={() => setExpenseModalOpen(false)}
-        confirmLoading={expenseSubmitting}
-        okText="保存"
-        cancelText="取消"
-      >
-        <Form form={expenseForm} layout="vertical">
-          <Form.Item name="category" label="类型" rules={[{ required: true, message: '请选择类型' }]}>
-            <Select
-              options={[
-                { value: '擦亮', label: '擦亮' },
-                { value: '推广', label: '推广' },
-                { value: '平台服务', label: '平台服务' },
-                { value: '其他', label: '其他' },
-              ]}
-            />
-          </Form.Item>
-          <Form.Item name="amount" label="金额" rules={[{ required: true, message: '请输入金额' }]}>
-            <InputNumber min={0.01} precision={2} style={{ width: '100%' }} prefix="¥" />
-          </Form.Item>
-          <Form.Item name="occurred_at" label="发生时间" rules={[{ required: true, message: '请选择发生时间' }]}>
-            <DatePicker showTime style={{ width: '100%' }} />
-          </Form.Item>
-          <Form.Item name="notes" label="备注">
-            <Input.TextArea rows={3} placeholder="可填写对应商品、账号或操作说明" />
-          </Form.Item>
-        </Form>
-      </Modal>
+      />
     </div>
   );
 }

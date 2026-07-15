@@ -5,6 +5,7 @@ import zhCN from 'antd/locale/zh_CN';
 import { RouterProvider } from 'react-router-dom';
 import { router } from './router';
 import ErrorBoundary from './components/ErrorBoundary';
+import AuthGate from './auth/AuthGate';
 import { useThemeStore, initTheme } from './store/useThemeStore';
 import 'dayjs/locale/zh-cn';
 import dayjs from 'dayjs';
@@ -20,7 +21,9 @@ function Root() {
   return (
     <ConfigProvider locale={zhCN} theme={antdTheme}>
       <AntdApp>
-        <RouterProvider router={router} />
+        <AuthGate>
+          <RouterProvider router={router} />
+        </AuthGate>
       </AntdApp>
     </ConfigProvider>
   );

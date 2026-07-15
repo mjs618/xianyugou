@@ -11,6 +11,7 @@ import {
   MailOutlined,
   SafetyOutlined,
   SettingOutlined,
+  DashboardOutlined,
 } from '@ant-design/icons';
 import { getSettings } from '@/services/settingsService';
 import { useAppStore } from '@/store/useAppStore';
@@ -25,6 +26,7 @@ import AuditLogTab from './AuditLogTab';
 import BackupRestoreTab from './BackupRestoreTab';
 import TrashTab from './TrashTab';
 import ProductTemplateTab from './ProductTemplateTab';
+import SystemStatusTab from './SystemStatusTab';
 
 export default function SettingsPage() {
   const { refreshAll } = useAppStore();
@@ -97,6 +99,11 @@ export default function SettingsPage() {
             key: 'notification',
             label: <span><BellOutlined /> 通知设置</span>,
             children: <NotificationTab />,
+          },
+          {
+            key: 'system-status',
+            label: <span><DashboardOutlined /> 运行状态</span>,
+            children: <SystemStatusTab />,
           },
           {
             key: 'backup',

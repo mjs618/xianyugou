@@ -2,7 +2,11 @@ import { FileTextOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { Badge } from 'antd';
 import { Children, createElement, isValidElement, type ReactNode } from 'react';
 import { describe, expect, it } from 'vitest';
-import { buildLayoutMenuItems, type LayoutNavigationItem } from '@/utils/layoutNavigation';
+import {
+  buildLayoutMenuItems,
+  LAYOUT_NAVIGATION_ROUTES,
+  type LayoutNavigationItem,
+} from '@/utils/layoutNavigation';
 
 const menuItems: LayoutNavigationItem[] = [
   { key: '/transactions', icon: createElement(FileTextOutlined), label: '交易管理' },
@@ -24,6 +28,21 @@ function getBadgeCounts(node: ReactNode): number[] {
 }
 
 describe('layoutNavigation', () => {
+  it('移动完整导航覆盖全部一级业务路由', () => {
+    expect(LAYOUT_NAVIGATION_ROUTES.map((item) => item.key)).toEqual([
+      '/',
+      '/transactions',
+      '/customers',
+      '/referral',
+      '/warranty',
+      '/after-sales',
+      '/finance',
+      '/send-mail',
+      '/order-sync',
+      '/settings',
+    ]);
+  });
+
   it('折叠侧栏时把待办徽标显示在菜单图标上', () => {
     const items = buildLayoutMenuItems(menuItems, true, pendingSummary);
     const warrantyItem = items.find((item) => item?.key === '/warranty');

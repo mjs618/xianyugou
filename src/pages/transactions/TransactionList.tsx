@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Card, Table, Button, Space, Input, Select, DatePicker, Tag, Popconfirm, message, Row, Col, Dropdown, Segmented, Empty, Switch, Tooltip, Modal, Result } from 'antd';
 import { PlusOutlined, ExportOutlined, DeleteOutlined, EditOutlined, EyeOutlined, DownOutlined, ClockCircleOutlined, CustomerServiceOutlined, CopyOutlined, ReloadOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { listTransactions, softDeleteTransaction, changeStatus } from '@/services/transactionService';
 import { createAfterSales } from '@/services/afterSalesService';
@@ -214,7 +214,7 @@ export default function TransactionList() {
       render: (id: number) => {
         const name = customers.get(id);
         return name ? (
-          <a onClick={() => navigate(`/customers/${id}`)}>{name}</a>
+          <Link to={`/customers/${id}`}>{name}</Link>
         ) : '-';
       },
     },
@@ -242,12 +242,12 @@ export default function TransactionList() {
       fixed: 'right' as const,
       render: (_: unknown, r: Transaction) => (
         <Space size={0}>
-          <Tooltip title="详情"><Button type="link" size="small" icon={<EyeOutlined />} onClick={() => navigate(`/transactions/${r.id}`)} /></Tooltip>
-          <Tooltip title="编辑"><Button type="link" size="small" icon={<EditOutlined />} onClick={() => navigate(`/transactions/${r.id}/edit`)} /></Tooltip>
-          <Tooltip title="标记售后"><Button type="link" size="small" icon={<CustomerServiceOutlined />} onClick={() => handleMarkAfterSales(r)} /></Tooltip>
-          <Tooltip title="复制联系方式"><Button type="link" size="small" icon={<CopyOutlined />} onClick={() => handleContact(r.customer_id)} /></Tooltip>
+          <Tooltip title="详情"><Button aria-label={`查看交易 ${r.product_name}`} type="link" size="small" icon={<EyeOutlined />} onClick={() => navigate(`/transactions/${r.id}`)} /></Tooltip>
+          <Tooltip title="编辑"><Button aria-label={`编辑交易 ${r.product_name}`} type="link" size="small" icon={<EditOutlined />} onClick={() => navigate(`/transactions/${r.id}/edit`)} /></Tooltip>
+          <Tooltip title="标记售后"><Button aria-label={`标记交易售后 ${r.product_name}`} type="link" size="small" icon={<CustomerServiceOutlined />} onClick={() => handleMarkAfterSales(r)} /></Tooltip>
+          <Tooltip title="复制联系方式"><Button aria-label={`复制交易买家联系方式 ${r.product_name}`} type="link" size="small" icon={<CopyOutlined />} onClick={() => handleContact(r.customer_id)} /></Tooltip>
           <Popconfirm title="确认删除该交易？" onConfirm={() => handleDelete(r.id!)} okText="删除" cancelText="取消">
-            <Button type="link" size="small" danger icon={<DeleteOutlined />} />
+            <Button aria-label={`删除交易 ${r.product_name}`} type="link" size="small" danger icon={<DeleteOutlined />} />
           </Popconfirm>
         </Space>
       ),

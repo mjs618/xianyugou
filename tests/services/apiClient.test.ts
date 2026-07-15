@@ -18,7 +18,13 @@
 // 否则 Node 会报 PromiseRejectionHandledWarning（rejection 在 handler 附加前已触发）。
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { apiClient, ApiException } from '@/services/apiClient';
+import {
+  apiClient,
+  ApiException,
+  getApiToken,
+  setApiToken,
+  subscribeAuthRequired,
+} from '@/services/apiClient';
 
 // 构造 mock Response 对象
 function makeResponse(body: unknown, status = 200): Response {
@@ -97,6 +103,25 @@ describe('apiClient P2-4：超时 + 重试', () => {
       message: /API Token/,
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('401 清除失效 Token 并通知认证入口', async () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal('sessionStorage', {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    });
+    const listener = vi.fn();
+    const unsubscribe = subscribeAuthRequired(listener);
+    setApiToken('expired-token');
+    fetchMock.mockResolvedValue(makeResponse({ detail: 'Unauthorized' }, 401));
+
+    await expect(apiClient.get('/api/protected')).rejects.toMatchObject({ status: 401 });
+
+    expect(getApiToken()).toBeNull();
+    expect(listener).toHaveBeenCalledTimes(1);
+    unsubscribe();
   });
 
   // ===== 5xx / 429 重试一次 =====

@@ -43,6 +43,7 @@ pnpm-debug.log*
 *.sw?
 .trae/
 .playwright-cli/
+/output/playwright/
 
 # OS
 .DS_Store
