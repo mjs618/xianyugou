@@ -21,7 +21,7 @@ import type {
   XianyuItemSyncResult,
   XianyuSyncResult,
 } from '@/types';
-import AccountTable from './AccountTable';
+import AccountCardGrid from './AccountCardGrid';
 import AccountFormModal from './AccountFormModal';
 import OrderMirrorModal from './OrderMirrorModal';
 import ItemMirrorModal from './ItemMirrorModal';
@@ -319,7 +319,7 @@ export default function OrderSyncPage() {
         />
       )}
 
-      <AccountTable
+      <AccountCardGrid
         accounts={accounts}
         loading={loading}
         syncingId={syncingId}
@@ -339,6 +339,7 @@ export default function OrderSyncPage() {
         onEditInterval={(id, value) => setEditingInterval((prev) => ({ ...prev, [id]: value }))}
         recoveringId={recoveringId}
         onRecover={handleRecover}
+        onAddAccount={() => { setEditing(null); form.resetFields(); setModalOpen(true); }}
       />
 
       {lastItemSyncResult && (
