@@ -18,6 +18,7 @@ import {
   SearchOutlined,
   CloudSyncOutlined,
   MenuOutlined,
+  MessageOutlined,
 } from '@ant-design/icons';
 import { useAppStore } from '@/store/useAppStore';
 import { runAllReminderChecks } from '@/services/notificationService';
@@ -39,6 +40,7 @@ const navigationIcons = {
   '/after-sales': <ToolOutlined />,
   '/finance': <BarChartOutlined />,
   '/send-mail': <MailOutlined />,
+  '/reply-assistant': <MessageOutlined />,
   '/order-sync': <CloudSyncOutlined />,
   '/settings': <SettingOutlined />,
 } satisfies Record<(typeof LAYOUT_NAVIGATION_ROUTES)[number]['key'], ReactNode>;

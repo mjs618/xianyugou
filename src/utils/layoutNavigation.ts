@@ -18,6 +18,7 @@ export const LAYOUT_NAVIGATION_ROUTES = [
   { key: '/after-sales', label: '售后管理' },
   { key: '/finance', label: '财务报表' },
   { key: '/send-mail', label: '发货邮件' },
+  { key: '/reply-assistant', label: '回复助手' },
   { key: '/order-sync', label: '订单同步' },
   { key: '/settings', label: '设置' },
 ] as const;

@@ -38,6 +38,7 @@ describe('layoutNavigation', () => {
       '/after-sales',
       '/finance',
       '/send-mail',
+      '/reply-assistant',
       '/order-sync',
       '/settings',
     ]);
