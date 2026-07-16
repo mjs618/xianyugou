@@ -208,3 +208,29 @@ def test_application_startup_contains_no_implicit_schema_ddl():
     assert "ALTER TABLE" not in source
     assert "_ensure_sqlite_columns" not in source
     assert "require_current_schema" in source
+
+
+def test_reply_assistant_migration_adds_settings_and_rules(tmp_path):
+    database = tmp_path / "reply-assistant.db"
+    url = f"sqlite:///{database.as_posix()}"
+    command.upgrade(migration_config(url), "20260713_02")
+    command.upgrade(migration_config(url), "head")
+
+    engine = create_engine(url)
+    inspector = inspect(engine)
+    assert {"reply_assistant_settings", "reply_rules"} <= set(
+        inspector.get_table_names()
+    )
+    assert {
+        "id",
+        "enabled",
+        "ai_enabled",
+        "api_base_url",
+        "api_key",
+        "model",
+        "system_prompt",
+    } <= {
+        column["name"]
+        for column in inspector.get_columns("reply_assistant_settings")
+    }
+    engine.dispose()

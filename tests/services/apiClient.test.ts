@@ -95,6 +95,20 @@ describe('apiClient P2-4：超时 + 重试', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('结构化 detail 使用稳定的 message 文本', async () => {
+    fetchMock.mockResolvedValue(makeResponse({
+      detail: { code: 'AI_RATE_LIMITED', message: '模型服务请求过多，请稍后重试' },
+    }, 503));
+    const promise = apiClient.post('/api/reply-assistant/suggestions', {});
+    const assertion = expect(promise).rejects.toMatchObject({
+      name: 'ApiException',
+      status: 503,
+      message: '模型服务请求过多，请稍后重试',
+    });
+    await vi.advanceTimersByTimeAsync(500);
+    await assertion;
+  });
+
   it('401 给出 API Token 配置提示', async () => {
     fetchMock.mockResolvedValue(makeResponse({ detail: 'Unauthorized' }, 401));
     await expect(apiClient.get('/api/protected')).rejects.toMatchObject({

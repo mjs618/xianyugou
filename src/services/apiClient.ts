@@ -74,15 +74,25 @@ function notifyAuthRequired(): void {
 
 // 后端返回的错误格式（FastAPI HTTPException）
 export interface ApiError {
-  detail: string;
+  detail: string | { code?: string; message?: string };
   status: number;
 }
 
 export class ApiException extends Error {
   status: number;
-  constructor(status: number, detail: string) {
-    super(detail);
+  code?: string;
+  constructor(status: number, detail: unknown) {
+    const structured = detail && typeof detail === 'object'
+      ? detail as { code?: unknown; message?: unknown }
+      : null;
+    const message = typeof structured?.message === 'string'
+      ? structured.message
+      : typeof detail === 'string'
+        ? detail
+        : `请求失败（${status}）`;
+    super(message);
     this.status = status;
+    this.code = typeof structured?.code === 'string' ? structured.code : undefined;
     this.name = 'ApiException';
   }
 }

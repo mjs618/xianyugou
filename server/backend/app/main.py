@@ -39,6 +39,7 @@ from .routers import (
     auth,
     metrics,
     system,
+    reply_assistant,
 )
 
 # P2-5 修复：结构化 JSON 日志（替代原 basicConfig）
@@ -179,6 +180,7 @@ app.include_router(attachments.router)
 app.include_router(auth.router)
 app.include_router(metrics.router)
 app.include_router(system.router)
+app.include_router(reply_assistant.router)
 
 
 if __name__ == "__main__":
