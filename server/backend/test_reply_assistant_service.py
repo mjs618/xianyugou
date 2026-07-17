@@ -5,16 +5,19 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.database import Base
-from app.models import ProductTemplate, ReplyRule
+from app.models import ProductTemplate, ReplyAssistantSettings, ReplyRule, XianyuAccount
 from app.schemas.reply_assistant import (
     ReplyAssistantSettingsUpdate,
     ReplyRuleCreate,
+    ReplySuggestionRequest,
 )
 from app.services import reply_assistant_service
 from app.services.reply_assistant_service import (
     ReplyAssistantError,
+    check_reply_risk,
     classify_risk,
     create_rule,
+    generate_suggestion,
     get_public_settings,
     get_settings,
     match_rule,
@@ -178,6 +181,89 @@ class ReplyAssistantServiceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(level, "manual_required")
         self.assertTrue({"议价", "私下付款"}.issubset(set(reasons)))
+
+    async def test_generate_suggestion_merges_risk_from_buyer_and_reply(self):
+        async with self.Session() as session:
+            session.add_all(
+                [
+                    XianyuAccount(id=1, nickname="主账号", cookies="c", status="online"),
+                    ProductTemplate(
+                        id=7,
+                        name="测试商品",
+                        default_cost=10,
+                        default_sale_price=20,
+                    ),
+                    ReplyAssistantSettings(
+                        id=1,
+                        enabled=True,
+                        ai_enabled=True,
+                    ),
+                    ReplyRule(
+                        name="售后固定回复",
+                        enabled=True,
+                        priority=10,
+                        keywords=["发货"],
+                        reply_text="如需退款请通过闲鱼订单申请售后。",
+                        product_template_id=7,
+                    ),
+                ]
+            )
+            await session.commit()
+            result = await generate_suggestion(
+                session,
+                ReplySuggestionRequest(
+                    account_id=1,
+                    product_template_id=7,
+                    buyer_message="什么时候发货",
+                ),
+            )
+
+        self.assertEqual(result.source, "rule")
+        self.assertEqual(result.risk_level, "manual_required")
+        self.assertIn("退款售后", result.risk_reasons)
+
+    async def test_generate_suggestion_dedupes_overlapping_risk_reasons(self):
+        async with self.Session() as session:
+            session.add_all(
+                [
+                    XianyuAccount(id=1, nickname="主账号", cookies="c", status="online"),
+                    ReplyAssistantSettings(
+                        id=1,
+                        enabled=True,
+                        ai_enabled=True,
+                    ),
+                    ReplyRule(
+                        name="退款引导",
+                        enabled=True,
+                        priority=10,
+                        keywords=["退款"],
+                        reply_text="退款请点击订单页面申请退货。",
+                    ),
+                ]
+            )
+            await session.commit()
+            result = await generate_suggestion(
+                session,
+                ReplySuggestionRequest(
+                    account_id=1,
+                    buyer_message="我要退款退货",
+                ),
+            )
+
+        self.assertEqual(result.risk_level, "manual_required")
+        self.assertEqual(result.risk_reasons.count("退款售后"), 1)
+
+    def test_check_reply_risk_returns_normal_for_safe_text(self):
+        level, reasons = check_reply_risk("您好，今天可以发货。")
+
+        self.assertEqual(level, "normal")
+        self.assertEqual(reasons, [])
+
+    def test_check_reply_risk_trims_and_classifies_risk_text(self):
+        level, reasons = check_reply_risk("  请提供电话和身份证  ")
+
+        self.assertEqual(level, "manual_required")
+        self.assertTrue({"隐私认证"}.issubset(set(reasons)))
 
     async def test_remote_http_api_base_url_is_rejected(self):
         async with self.Session() as session:

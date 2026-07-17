@@ -1,6 +1,7 @@
 import type {
   ReplyAssistantSettings,
   ReplyAssistantSettingsUpdate,
+  ReplyRiskCheck,
   ReplyRule,
   ReplyRuleInput,
   ReplySuggestion,
@@ -56,4 +57,8 @@ export async function generateReplySuggestion(
   input: ReplySuggestionInput,
 ): Promise<ReplySuggestion> {
   return apiClient.postLong<ReplySuggestion>('/api/reply-assistant/suggestions', input);
+}
+
+export async function checkReplyRisk(text: string): Promise<ReplyRiskCheck> {
+  return apiClient.post<ReplyRiskCheck>('/api/reply-assistant/risk-check', { text });
 }

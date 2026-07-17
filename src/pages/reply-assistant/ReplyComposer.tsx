@@ -5,6 +5,7 @@ import {
   Card,
   Form,
   Input,
+  Modal,
   Select,
   Space,
   Tag,
@@ -14,6 +15,7 @@ import {
 import { CopyOutlined, SendOutlined } from '@ant-design/icons';
 import type {
   ProductTemplate,
+  ReplyRiskCheck,
   ReplySuggestion,
   ReplySuggestionInput,
   XianyuAccount,
@@ -26,6 +28,7 @@ interface ReplyComposerProps {
   assistantEnabled: boolean;
   loading: boolean;
   onGenerate: (input: ReplySuggestionInput) => Promise<ReplySuggestion>;
+  onCheckRisk: (text: string) => Promise<ReplyRiskCheck>;
 }
 
 export default function ReplyComposer({
@@ -34,6 +37,7 @@ export default function ReplyComposer({
   assistantEnabled,
   loading,
   onGenerate,
+  onCheckRisk,
 }: ReplyComposerProps) {
   const [accountId, setAccountId] = useState<number>();
   const [productId, setProductId] = useState<number>();
@@ -41,6 +45,7 @@ export default function ReplyComposer({
   const [contextText, setContextText] = useState('');
   const [suggestion, setSuggestion] = useState<ReplySuggestion | null>(null);
   const [candidate, setCandidate] = useState('');
+  const [checkingRisk, setCheckingRisk] = useState(false);
 
   useEffect(() => {
     if (accountId === undefined && accounts[0]) setAccountId(accounts[0].id);
@@ -102,13 +107,38 @@ export default function ReplyComposer({
     }
   };
 
-  const copy = async () => {
-    if (!candidate.trim()) return;
+  const writeClipboard = async (text: string) => {
     try {
-      await navigator.clipboard.writeText(candidate);
+      await navigator.clipboard.writeText(text);
       message.success('候选回复已复制，请到闲鱼人工核对后发送');
     } catch {
       message.error('复制失败，请手动选择文本');
+    }
+  };
+
+  const copy = async () => {
+    const text = candidate.trim();
+    if (!text || checkingRisk) return;
+    setCheckingRisk(true);
+    try {
+      const result = await onCheckRisk(text);
+      if (result.risk_level === 'normal') {
+        await writeClipboard(text);
+        return;
+      }
+      const reasons = result.risk_reasons.join('、');
+      Modal.confirm({
+        title: '候选回复包含风险内容',
+        content: `触发原因：${reasons}。请再次核对后再复制。`,
+        okText: '已核对，继续复制',
+        cancelText: '取消复制',
+        okType: 'danger',
+        onOk: () => writeClipboard(text),
+      });
+    } catch {
+      message.error('风险检查失败，请手动选择文本');
+    } finally {
+      setCheckingRisk(false);
     }
   };
 
@@ -251,6 +281,7 @@ export default function ReplyComposer({
                 size="large"
                 block
                 icon={<CopyOutlined />}
+                loading={checkingRisk}
                 onClick={copy}
                 aria-label="复制候选回复"
               >

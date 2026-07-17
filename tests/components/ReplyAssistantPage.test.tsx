@@ -11,6 +11,7 @@ const replyApi = vi.hoisted(() => ({
   updateReplyRule: vi.fn(),
   deleteReplyRule: vi.fn(),
   generateReplySuggestion: vi.fn(),
+  checkReplyRisk: vi.fn(),
 }));
 const accountApi = vi.hoisted(() => ({ listAccounts: vi.fn() }));
 const productApi = vi.hoisted(() => ({ listActiveTemplates: vi.fn() }));
@@ -33,6 +34,7 @@ describe('ReplyAssistantPage', () => {
       system_prompt: '',
     });
     replyApi.listReplyRules.mockResolvedValue([]);
+    replyApi.checkReplyRisk.mockResolvedValue({ risk_level: 'normal', risk_reasons: [] });
     accountApi.listAccounts.mockResolvedValue([
       {
         id: 1,
@@ -182,5 +184,93 @@ describe('ReplyAssistantPage', () => {
     fireEvent.click(await screen.findByRole('button', { name: '重新加载' }));
 
     expect(await screen.findByRole('heading', { name: '闲鱼回复助手' })).toBeTruthy();
+  });
+
+  it('blocks copy and asks for confirmation when edited candidate is risky', async () => {
+    replyApi.generateReplySuggestion.mockResolvedValue({
+      reply: '已编辑内容',
+      source: 'ai',
+      matched_rule_id: null,
+      risk_level: 'normal',
+      risk_reasons: [],
+      copy_allowed: true,
+    });
+    replyApi.checkReplyRisk.mockResolvedValueOnce({
+      risk_level: 'manual_required',
+      risk_reasons: ['隐私认证'],
+    });
+    render(<ReplyAssistantPage />);
+
+    fireEvent.change(await screen.findByPlaceholderText('粘贴买家的最新消息'), {
+      target: { value: '你好' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '生成候选回复' }));
+    const candidate = await screen.findByRole('textbox', { name: '候选回复' });
+    fireEvent.change(candidate, { target: { value: '请把电话发我' } });
+    fireEvent.click(screen.getByRole('button', { name: '复制候选回复' }));
+
+    const confirmButton = await screen.findByRole('button', { name: '已核对，继续复制' });
+    expect(screen.getByText(/隐私认证/)).toBeTruthy();
+    expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
+
+    fireEvent.click(confirmButton);
+
+    await waitFor(() => {
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith('请把电话发我');
+    });
+  });
+
+  it('does not copy when risk confirmation is cancelled', async () => {
+    replyApi.generateReplySuggestion.mockResolvedValue({
+      reply: '请把电话发我',
+      source: 'ai',
+      matched_rule_id: null,
+      risk_level: 'normal',
+      risk_reasons: [],
+      copy_allowed: true,
+    });
+    replyApi.checkReplyRisk.mockResolvedValueOnce({
+      risk_level: 'manual_required',
+      risk_reasons: ['隐私认证'],
+    });
+    render(<ReplyAssistantPage />);
+
+    fireEvent.change(await screen.findByPlaceholderText('粘贴买家的最新消息'), {
+      target: { value: '你好' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '生成候选回复' }));
+    await screen.findByRole('textbox', { name: '候选回复' });
+    fireEvent.click(screen.getByRole('button', { name: '复制候选回复' }));
+
+    const cancelButton = await screen.findByRole('button', { name: '取消复制' });
+    fireEvent.click(cancelButton);
+
+    await waitFor(() => {
+      expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
+    });
+  });
+
+  it('does not copy and shows error when risk check fails', async () => {
+    replyApi.generateReplySuggestion.mockResolvedValue({
+      reply: '候选',
+      source: 'ai',
+      matched_rule_id: null,
+      risk_level: 'normal',
+      risk_reasons: [],
+      copy_allowed: true,
+    });
+    replyApi.checkReplyRisk.mockRejectedValueOnce(new Error('网络错误'));
+    render(<ReplyAssistantPage />);
+
+    fireEvent.change(await screen.findByPlaceholderText('粘贴买家的最新消息'), {
+      target: { value: '你好' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '生成候选回复' }));
+    await screen.findByRole('textbox', { name: '候选回复' });
+    fireEvent.click(screen.getByRole('button', { name: '复制候选回复' }));
+
+    await waitFor(() => {
+      expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
+    });
   });
 });

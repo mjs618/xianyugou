@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .base import ORMBase
 
@@ -92,3 +92,22 @@ class ReplySuggestionOut(BaseModel):
     risk_level: Literal["normal", "manual_required"]
     risk_reasons: list[str]
     copy_allowed: bool = True
+
+
+class RiskCheckRequest(BaseModel):
+    text: str = Field(max_length=2000)
+
+    @field_validator("text")
+    @classmethod
+    def strip_and_validate_length(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("text 不能为空")
+        if len(stripped) > 1000:
+            raise ValueError("text 去除首尾空白后不能超过 1000 个字符")
+        return stripped
+
+
+class RiskCheckResponse(BaseModel):
+    risk_level: Literal["normal", "manual_required"]
+    risk_reasons: list[str]

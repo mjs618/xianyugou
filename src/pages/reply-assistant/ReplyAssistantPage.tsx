@@ -3,6 +3,7 @@ import { Alert, Button, Result, Skeleton, Space, Tag, Typography } from 'antd';
 import { ControlOutlined, MessageOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { listActiveTemplates } from '@/services/productTemplateService';
 import {
+  checkReplyRisk,
   generateReplySuggestion,
   getReplyAssistantSettings,
   listReplyRules,
@@ -137,6 +138,7 @@ export default function ReplyAssistantPage() {
         assistantEnabled={settings.enabled}
         loading={generating}
         onGenerate={generate}
+        onCheckRisk={checkReplyRisk}
       />
 
       <ReplyAssistantConfig

@@ -563,3 +563,8 @@ export interface ReplySuggestion {
   risk_reasons: string[];
   copy_allowed: boolean;
 }
+
+export interface ReplyRiskCheck {
+  risk_level: 'normal' | 'manual_required';
+  risk_reasons: string[];
+}

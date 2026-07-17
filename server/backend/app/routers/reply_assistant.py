@@ -11,6 +11,8 @@ from ..schemas.reply_assistant import (
     ReplyRuleUpdate,
     ReplySuggestionOut,
     ReplySuggestionRequest,
+    RiskCheckRequest,
+    RiskCheckResponse,
 )
 from ..services import reply_assistant_service
 from ..services.llm_client import LlmClientError
@@ -99,3 +101,11 @@ async def generate_suggestion(
         return result
     except (ReplyAssistantError, LlmClientError) as exc:
         raise _http_error(exc) from exc
+
+
+@router.post("/risk-check", response_model=RiskCheckResponse)
+async def check_risk(payload: RiskCheckRequest):
+    risk_level, risk_reasons = reply_assistant_service.check_reply_risk(payload.text)
+    return RiskCheckResponse(
+        risk_level=risk_level, risk_reasons=risk_reasons
+    )

@@ -5,10 +5,12 @@ import {
   resetMockApi,
   setMockResponse,
 } from '../mockApiClient';
+import type { ReplyRiskCheck } from '@/types';
 
 vi.mock('@/services/apiClient', () => mockApiFactory());
 
 import {
+  checkReplyRisk,
   createReplyRule,
   deleteReplyRule,
   generateReplySuggestion,
@@ -104,5 +106,21 @@ describe('replyAssistantService', () => {
 
     expect(result.source).toBe('ai');
     expect(getMockCalls('postLong', '/api/reply-assistant/suggestions')[0].body).toEqual(input);
+  });
+
+  it('checks reply risk with the exact text payload', async () => {
+    const riskResponse: ReplyRiskCheck = {
+      risk_level: 'manual_required',
+      risk_reasons: ['退款售后'],
+    };
+    setMockResponse('post', '/api/reply-assistant/risk-check', riskResponse);
+
+    const result = await checkReplyRisk('我要退款');
+
+    expect(result.risk_level).toBe('manual_required');
+    expect(result.risk_reasons).toEqual(['退款售后']);
+    expect(getMockCalls('post', '/api/reply-assistant/risk-check')[0].body).toEqual({
+      text: '我要退款',
+    });
   });
 });

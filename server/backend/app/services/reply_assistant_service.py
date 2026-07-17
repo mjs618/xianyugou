@@ -275,6 +275,27 @@ def classify_risk(message: str) -> tuple[str, list[str]]:
     return ("manual_required", reasons) if reasons else ("normal", [])
 
 
+def check_reply_risk(text: str) -> tuple[str, list[str]]:
+    """对用户编辑后的最终候选文本执行本地关键词风险分类。
+
+    不访问数据库、AI、闲鱼网络或外部 URL；不记录请求正文。
+    """
+    return classify_risk(text.strip())
+
+
+def _merge_risk(
+    buyer_reasons: list[str], reply_reasons: list[str]
+) -> tuple[str, list[str]]:
+    """合并买家消息和候选回复触发的风险原因并去重，保持稳定顺序。"""
+    seen: set[str] = set()
+    merged: list[str] = []
+    for reason in [*buyer_reasons, *reply_reasons]:
+        if reason not in seen:
+            seen.add(reason)
+            merged.append(reason)
+    return ("manual_required" if merged else "normal", merged)
+
+
 async def _get_account(db: AsyncSession, account_id: int) -> XianyuAccount:
     account = await db.get(XianyuAccount, account_id)
     if account is None or account.deleted_at is not None:
@@ -381,6 +402,8 @@ async def generate_suggestion(
         product_template_id=payload.product_template_id,
     )
     if rule is not None:
+        reply_risk_level, reply_risk_reasons = classify_risk(rule.reply_text)
+        risk_level, risk_reasons = _merge_risk(risk_reasons, reply_risk_reasons)
         result = ReplySuggestionOut(
             reply=rule.reply_text,
             source="rule",
@@ -415,6 +438,8 @@ async def generate_suggestion(
         _build_messages(settings, product, payload),
     )
     reply = reply.strip()[:1000]
+    reply_risk_level, reply_risk_reasons = classify_risk(reply)
+    risk_level, risk_reasons = _merge_risk(risk_reasons, reply_risk_reasons)
     result = ReplySuggestionOut(
         reply=reply,
         source="ai",

@@ -342,6 +342,52 @@ class ReplyAssistantRouteTests(unittest.IsolatedAsyncioTestCase):
             },
         )
 
+    async def test_risk_check_returns_normal_for_safe_text(self):
+        response = await self.client.post(
+            "/api/reply-assistant/risk-check",
+            json={"text": "您好，今天可以发货。"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"risk_level": "normal", "risk_reasons": []})
+
+    async def test_risk_check_returns_manual_required_for_risk_text(self):
+        response = await self.client.post(
+            "/api/reply-assistant/risk-check",
+            json={"text": "请把电话发我，我们私下转账"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["risk_level"], "manual_required")
+        self.assertIn("隐私认证", response.json()["risk_reasons"])
+        self.assertIn("私下付款", response.json()["risk_reasons"])
+
+    async def test_risk_check_rejects_empty_and_overlong_text(self):
+        empty = await self.client.post(
+            "/api/reply-assistant/risk-check",
+            json={"text": "   "},
+        )
+        self.assertEqual(empty.status_code, 422)
+
+        overlong = await self.client.post(
+            "/api/reply-assistant/risk-check",
+            json={"text": "字" * 1001},
+        )
+        self.assertEqual(overlong.status_code, 422)
+
+    async def test_risk_check_does_not_write_audit_log(self):
+        await self.client.post(
+            "/api/reply-assistant/risk-check",
+            json={"text": "我要退款"},
+        )
+
+        async with self.Session() as db:
+            logs = (
+                await db.execute(select(OperationLog))
+            ).scalars().all()
+
+        self.assertEqual(logs, [])
+
 
 if __name__ == "__main__":
     unittest.main()
