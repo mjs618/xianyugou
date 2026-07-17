@@ -36,6 +36,14 @@ function responseFor(route: Route): unknown {
       updated_at: '2026-07-15T13:00:00Z',
     }));
   }
+  if (path === '/api/reply-assistant/risk-check') {
+    const body = route.request().postDataJSON() as { text?: string } | null;
+    const text = (body?.text ?? '').toLowerCase();
+    if (text.includes('电话') || text.includes('退款') || text.includes('转账')) {
+      return { risk_level: 'manual_required', risk_reasons: ['隐私认证'] };
+    }
+    return { risk_level: 'normal', risk_reasons: [] };
+  }
   if (path === '/api/xianyu/cookiecloud/status') {
     return {
       enabled: false,
@@ -195,6 +203,23 @@ test('回复助手生成规则候选并提示人工核对', async ({ page }) => 
   await expect(page.getByText('固定规则', { exact: true })).toBeVisible();
   await expect(page.getByText('人工核对')).toBeVisible();
   await expect(page.getByText('触发原因：退款售后')).toBeVisible();
+});
+
+test('回复助手复制风险候选时弹出二次确认并可取消', async ({ page }) => {
+  await unlock(page);
+  await page.goto('/reply-assistant');
+
+  await page.getByPlaceholder('粘贴买家的最新消息').fill('你好');
+  await page.getByRole('button', { name: '生成候选回复' }).click();
+  await expect(page.getByRole('textbox', { name: '候选回复' })).toBeVisible();
+
+  await page.getByRole('textbox', { name: '候选回复' }).fill('请把电话发我');
+  await page.getByRole('button', { name: '复制候选回复' }).click();
+
+  await expect(page.getByRole('button', { name: '已核对，继续复制' })).toBeVisible();
+  await expect(page.getByText('隐私认证')).toBeVisible();
+  await page.getByRole('button', { name: '取消复制' }).click();
+  await expect(page.getByRole('button', { name: '已核对，继续复制' })).toBeHidden();
 });
 
 test('设置页可查看真实指标结构的运行状态', async ({ page }) => {
