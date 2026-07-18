@@ -244,6 +244,15 @@ class MailRecordRouteTests(unittest.IsolatedAsyncioTestCase):
             for r in records:
                 self.assertTrue(is_encrypted(r.gpt_password))
 
+    async def test_delete_nonexistent_record_returns_404(self):
+        """DELETE 不存在的 id 应返回 404（与 expenses 路由行为一致）。"""
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.delete("/api/mail-records/9999")
+            self.assertEqual(response.status_code, 404)
+            self.assertIn("不存在", response.json()["detail"])
+
 
 if __name__ == "__main__":
     unittest.main()

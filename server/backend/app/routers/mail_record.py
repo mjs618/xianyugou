@@ -1,9 +1,15 @@
-"""邮件发送记录路由。敏感字段写入时加密、读取时解密。"""
-from fastapi import APIRouter, Depends, HTTPException, Body
+"""邮件发送记录路由。敏感字段写入时加密、读取时解密。
+
+读端点 100 req/min/IP，写端点 30 req/min/IP（project_memory 硬约束：
+stricter for write endpoints）。此路由处理敏感字段（密码加密），
+写端点限流更严格可降低枚举/滥用风险。
+"""
+from fastapi import APIRouter, Depends, HTTPException, Body, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..schemas import MailRecordCreate
+from ..security import limiter
 from ..services import mail_record_service
 from ..utils.crypto import encrypt_field, decrypt_field
 
@@ -27,14 +33,23 @@ def _to_dict(m, decrypt=True) -> dict:
 
 
 @router.get("")
-async def list_mail_records(db: AsyncSession = Depends(get_db)):
+@limiter.limit("100/minute")
+async def list_mail_records(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
     items = await mail_record_service.list_mail_records(db)
     await db.commit()
     return [_to_dict(m) for m in items]
 
 
 @router.post("")
-async def add_mail_record(payload: MailRecordCreate = Body(...), db: AsyncSession = Depends(get_db)):
+@limiter.limit("30/minute")
+async def add_mail_record(
+    request: Request,
+    payload: MailRecordCreate = Body(...),
+    db: AsyncSession = Depends(get_db),
+):
     from ..utils.helpers import parse_date
     # 敏感字段加密存储；日期字段转 datetime
     record = payload.model_dump(exclude_unset=True)
@@ -50,14 +65,26 @@ async def add_mail_record(payload: MailRecordCreate = Body(...), db: AsyncSessio
 
 
 @router.delete("/{rid}")
-async def delete_mail_record(rid: int, db: AsyncSession = Depends(get_db)):
-    await mail_record_service.delete_mail_record(db, rid)
-    await db.commit()
-    return {"ok": True}
+@limiter.limit("30/minute")
+async def delete_mail_record(
+    request: Request,
+    rid: int,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        await mail_record_service.delete_mail_record(db, rid)
+        await db.commit()
+        return {"ok": True}
+    except ValueError as exc:
+        raise HTTPException(404, str(exc))
 
 
 @router.delete("")
-async def clear_mail_records(db: AsyncSession = Depends(get_db)):
+@limiter.limit("30/minute")
+async def clear_mail_records(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
     await mail_record_service.clear_mail_records(db)
     await db.commit()
     return {"ok": True}

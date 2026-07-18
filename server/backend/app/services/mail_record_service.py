@@ -21,7 +21,11 @@ async def list_mail_records(db: AsyncSession) -> list[MailRecord]:
 
 
 async def delete_mail_record(db: AsyncSession, rid: int) -> None:
-    await db.execute(delete(MailRecord).where(MailRecord.id == rid))
+    """删除单条记录。不存在时抛 ValueError（与 expense_service.delete_expense 一致）。"""
+    existing = await db.get(MailRecord, rid)
+    if existing is None:
+        raise ValueError("邮件记录不存在")
+    await db.delete(existing)
 
 
 async def clear_mail_records(db: AsyncSession) -> None:
