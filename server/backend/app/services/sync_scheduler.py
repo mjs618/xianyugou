@@ -29,12 +29,20 @@ logger = logging.getLogger(__name__)
 # tick 间隔（秒）。每 60 秒检查一次到期账号。
 TICK_INTERVAL_SECONDS = 60
 
+# 单次 tick 内最大并发同步账号数（信号量限制，避免多账号同时发起 MTOP 请求触发反欺诈）。
+MAX_CONCURRENT_SYNC = 2
+
 
 class SyncScheduler:
     """后台自动同步调度器。单例，随应用生命周期启停。"""
 
-    def __init__(self, tick_interval: int = TICK_INTERVAL_SECONDS) -> None:
+    def __init__(
+        self,
+        tick_interval: int = TICK_INTERVAL_SECONDS,
+        max_concurrent: int = MAX_CONCURRENT_SYNC,
+    ) -> None:
         self._tick_interval = tick_interval
+        self._max_concurrent = max_concurrent
         self._task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
 
@@ -86,9 +94,15 @@ class SyncScheduler:
         if not due_accounts:
             return
         logger.debug("发现 %d 个到期账号：%s", len(due_accounts), due_accounts)
-        # 不同账号可并发，各自带锁；异常隔离不互相影响
+        # 信号量限制并发账号数，避免多账号同时发起 MTOP 请求触发反欺诈
+        sem = asyncio.Semaphore(self._max_concurrent)
+
+        async def _bounded_sync(account_id: int) -> None:
+            async with sem:
+                await self._sync_one(account_id)
+
         await asyncio.gather(
-            *(self._sync_one(account_id) for account_id in due_accounts),
+            *(_bounded_sync(account_id) for account_id in due_accounts),
             return_exceptions=True,
         )
 

@@ -51,6 +51,12 @@ export default function SyncLogModal({ accountId, onClose }: SyncLogModalProps) 
             render: (v: Date) => dayjs(v).format('YYYY-MM-DD HH:mm'),
           },
           {
+            title: '类型', dataIndex: 'sync_type', width: 80,
+            render: (v?: string) => v === 'item'
+              ? <Tag color="blue">商品</Tag>
+              : <Tag>订单</Tag>,
+          },
+          {
             title: '状态', dataIndex: 'status', width: 80,
             render: (v: string) => v === 'success'
               ? <Tag color="green">成功</Tag>

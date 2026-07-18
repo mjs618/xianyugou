@@ -244,6 +244,34 @@ class SyncSchedulerLifecycleTests(unittest.IsolatedAsyncioTestCase):
             awaited_ids = {call.args[0] for call in mock_sync_one.await_args_list}
             self.assertEqual(awaited_ids, {1, 2, 3})
 
+    async def test_tick_limits_concurrent_syncs_via_semaphore(self):
+        """到期账号数量超过 max_concurrent 时，并发不超过上限。"""
+        import asyncio
+
+        scheduler = SyncScheduler(max_concurrent=2)
+        current = 0
+        peak = 0
+
+        async def slow_sync(account_id):
+            nonlocal current, peak
+            current += 1
+            peak = max(peak, current)
+            await asyncio.sleep(0.05)
+            current -= 1
+
+        with (
+            patch.object(
+                scheduler,
+                "find_due_accounts",
+                new=AsyncMock(return_value=[1, 2, 3, 4, 5]),
+            ),
+            patch.object(scheduler, "_sync_one", new=slow_sync),
+        ):
+            await scheduler._tick()
+
+        self.assertLessEqual(peak, 2)
+        self.assertEqual(peak, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,12 +1,14 @@
 """闲鱼商品拉取与镜像导入服务。"""
+import logging
 from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...models import ProductTemplate, XianyuAccount, XianyuItem
+from ...models import ProductTemplate, XianyuAccount, XianyuItem, XianyuSyncLog
 from ...utils.crypto import encrypt_field
 from ...utils.helpers import now_utc
+from ..notification_service import create_account_paused_notification
 from .account_service import (
     ensure_account_not_paused,
     get_plain_cookies,
@@ -23,9 +25,14 @@ from .item_parser import (
 )
 from .mtop_client import MtopClient, MtopError
 
+logger = logging.getLogger(__name__)
+
 ITEM_LIST_API = "mtop.idle.web.xyh.item.list"
 ACCOUNT_API = "mtop.idle.web.user.page.account"
 ITEM_API_VERSION = "1.0"
+
+# 连续未知失败达到此阈值即熔断暂停账号（与 order_service 一致）
+PAUSE_FAILURE_THRESHOLD = 3
 
 
 async def upsert_item_mirror(
@@ -126,6 +133,9 @@ async def sync_items_for_account(
     fetched: list[dict] = []
     upserted_count = 0
     error: Optional[str] = None
+    # 失败分类：None=成功；"auth_fail"/"risk"=立即熔断；"unknown"=计数熔断
+    failure_kind: Optional[str] = None
+
     try:
         user_id = await _fetch_user_id(mtop) or account.unb or mtop.unb
         fetched = await fetch_items(mtop, user_id=user_id, max_pages=max_pages)
@@ -134,6 +144,7 @@ async def sync_items_for_account(
             refreshed = await refresh_account_cookies_from_cookiecloud(db, account)
             if not refreshed:
                 error = account.last_error or str(e)
+                failure_kind = "auth_fail"
             else:
                 try:
                     mtop = MtopClient(get_plain_cookies(account))
@@ -141,16 +152,25 @@ async def sync_items_for_account(
                     fetched = await fetch_items(mtop, user_id=user_id, max_pages=max_pages)
                 except MtopError as retry_error:
                     error = str(retry_error)
-                    account.status = "risk" if retry_error.risk else "invalid"
                     account.last_error = error
+                    if retry_error.risk:
+                        failure_kind = "risk"
+                    elif retry_error.auth_fail:
+                        failure_kind = "auth_fail"
+                    else:
+                        failure_kind = "unknown"
+        elif e.risk:
+            error = str(e)
+            account.last_error = error
+            failure_kind = "risk"
         else:
             error = str(e)
-            account.status = "risk" if e.risk else "invalid"
             account.last_error = error
+            failure_kind = "unknown"
     except Exception as e:
         error = f"拉取异常: {e}"
-        account.status = "invalid"
         account.last_error = error
+        failure_kind = "unknown"
 
     if mtop.cookies_changed:
         account.cookies = encrypt_field(mtop.cookie_str)
@@ -161,9 +181,41 @@ async def sync_items_for_account(
         if mirror is not None:
             upserted_count += 1
 
-    if error is None:
+    # 根据失败分类应用熔断策略（与 order_service 一致）
+    if failure_kind is None:
         account.status = "online"
         account.last_error = None
+        account.consecutive_failures = 0
+    elif failure_kind in ("auth_fail", "risk"):
+        account.status = "paused"
+        account.paused_at = now_utc()
+        account.consecutive_failures = 0
+        reason = "登录失效" if failure_kind == "auth_fail" else "平台风控响应"
+        try:
+            await create_account_paused_notification(db, account_id, account.nickname, reason)
+        except Exception as notify_err:
+            logger.warning("创建账号熔断通知失败（账号 %s）: %s", account_id, notify_err)
+    else:
+        account.consecutive_failures = (account.consecutive_failures or 0) + 1
+        if account.consecutive_failures >= PAUSE_FAILURE_THRESHOLD:
+            account.status = "paused"
+            account.paused_at = now_utc()
+            reason = f"连续失败 {account.consecutive_failures} 次"
+            try:
+                await create_account_paused_notification(db, account_id, account.nickname, reason)
+            except Exception as notify_err:
+                logger.warning("创建账号熔断通知失败（账号 %s）: %s", account_id, notify_err)
+
+    # 记录同步日志（sync_type='item' 区分订单同步）
+    db.add(XianyuSyncLog(
+        account_id=account_id,
+        status="failed" if error else "success",
+        fetched=len(fetched),
+        created_count=upserted_count,
+        skipped_count=0,
+        error=error,
+        sync_type="item",
+    ))
     await db.flush()
     return {
         "success": error is None,

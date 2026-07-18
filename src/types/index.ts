@@ -497,6 +497,7 @@ export interface XianyuSyncLog {
   created_count: number;
   skipped_count: number;
   error?: string;
+  sync_type?: 'order' | 'item';
   created_at: Date;
 }
 

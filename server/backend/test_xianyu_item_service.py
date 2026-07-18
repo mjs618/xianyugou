@@ -1,12 +1,12 @@
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.database import Base
-from app.models import ProductTemplate, XianyuAccount, XianyuItem
+from app.models import ProductTemplate, XianyuAccount, XianyuItem, XianyuSyncLog
 from app.services.xianyu.item_service import (
     fetch_items,
     import_item_mirrors_as_templates,
@@ -205,17 +205,24 @@ class XianyuItemServiceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_sync_items_refreshes_cookiecloud_once_after_auth_fail(self):
         account = SimpleNamespace(
+            id=1,
             cookies="encrypted-old",
             status="online",
             last_error=None,
             updated_at=None,
             unb="old-unb",
+            consecutive_failures=0,
+            paused_at=None,
+            nickname="测试账号",
         )
         fetch_calls = 0
 
         class FakeDb:
             async def get(self, model, account_id):
                 return account
+
+            def add(self, item):
+                pass
 
             async def flush(self):
                 pass
@@ -256,6 +263,209 @@ class XianyuItemServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(fetch_calls, 2)
         self.assertTrue(result["success"])
         self.assertIsNone(account.last_error)
+
+
+class ItemSyncCircuitBreakerTests(unittest.IsolatedAsyncioTestCase):
+    """商品同步熔断：与 order_service 一致——auth_fail/risk 立即暂停；unknown 累计 3 次暂停。"""
+
+    def _make_account(self, **overrides):
+        defaults = dict(
+            id=1,
+            cookies="encrypted-old",
+            status="online",
+            last_error=None,
+            last_sync_at=None,
+            updated_at=None,
+            consecutive_failures=0,
+            paused_at=None,
+            nickname="测试账号",
+            unb="old-unb",
+        )
+        defaults.update(overrides)
+        return SimpleNamespace(**defaults)
+
+    def _make_fake_db(self, account):
+        class FakeDb:
+            async def get(self, model, account_id):
+                return account
+
+            def add(self, item):
+                pass
+
+            async def flush(self):
+                pass
+
+        return FakeDb()
+
+    async def _run_sync(self, account, fetch_side_effect, *, mock_notify=False):
+        class FakeMtop:
+            def __init__(self, cookie_str):
+                self.cookie_str = cookie_str
+                self.cookies_changed = False
+                self.unb = "old-unb"
+
+        async def fake_fetch_user_id(mtop):
+            return "old-unb"
+
+        async def fake_fetch_items(mtop, *, user_id, max_pages):
+            if isinstance(fetch_side_effect, Exception):
+                raise fetch_side_effect
+            return fetch_side_effect
+
+        async def fake_refresh(db, acc):
+            return False
+
+        patches = [
+            patch.object(item_service, "get_plain_cookies", return_value="old-cookie"),
+            patch.object(item_service, "MtopClient", FakeMtop),
+            patch.object(item_service, "_fetch_user_id", fake_fetch_user_id),
+            patch.object(item_service, "fetch_items", fake_fetch_items),
+            patch.object(item_service, "refresh_account_cookies_from_cookiecloud", fake_refresh),
+        ]
+        if mock_notify:
+            patches.append(patch.object(item_service, "create_account_paused_notification"))
+
+        for p in patches:
+            p.start()
+        try:
+            return await item_service.sync_items_for_account(self._make_fake_db(account), 1)
+        finally:
+            for p in patches:
+                p.stop()
+
+    async def test_risk_response_pauses_immediately(self):
+        account = self._make_account()
+        await self._run_sync(
+            account,
+            item_service.MtopError("RISK", "风控", risk=True),
+            mock_notify=True,
+        )
+        self.assertEqual(account.status, "paused")
+        self.assertIsNotNone(account.paused_at)
+        self.assertEqual(account.consecutive_failures, 0)
+
+    async def test_auth_fail_without_refresh_pauses_immediately(self):
+        account = self._make_account()
+        await self._run_sync(
+            account,
+            item_service.MtopError("AUTH_FAIL", "session expired", auth_fail=True),
+            mock_notify=True,
+        )
+        self.assertEqual(account.status, "paused")
+        self.assertIsNotNone(account.paused_at)
+
+    async def test_unknown_failure_counts_towards_pause_threshold(self):
+        account = self._make_account()
+        await self._run_sync(account, RuntimeError("网络超时"), mock_notify=True)
+        self.assertEqual(account.consecutive_failures, 1)
+        self.assertEqual(account.status, "online")
+        await self._run_sync(account, RuntimeError("网络超时"), mock_notify=True)
+        self.assertEqual(account.consecutive_failures, 2)
+        self.assertEqual(account.status, "online")
+        await self._run_sync(account, RuntimeError("网络超时"), mock_notify=True)
+        self.assertEqual(account.status, "paused")
+        self.assertIsNotNone(account.paused_at)
+
+    async def test_success_resets_failure_counter(self):
+        account = self._make_account(consecutive_failures=2)
+        await self._run_sync(account, [])  # 空商品列表=成功
+        self.assertEqual(account.consecutive_failures, 0)
+        self.assertEqual(account.status, "online")
+
+    async def test_risk_pause_creates_notification(self):
+        """风控熔断时应创建 account_paused 通知。"""
+        account = self._make_account(nickname="商品账号")
+
+        class FakeMtop:
+            def __init__(self, cookie_str):
+                self.cookie_str = cookie_str
+                self.cookies_changed = False
+                self.unb = "old-unb"
+
+        async def fake_fetch_items(mtop, *, user_id, max_pages):
+            raise item_service.MtopError("RISK", "风控", risk=True)
+
+        with (
+            patch.object(item_service, "get_plain_cookies", return_value="old-cookie"),
+            patch.object(item_service, "MtopClient", FakeMtop),
+            patch.object(item_service, "_fetch_user_id", AsyncMock(return_value="old-unb")),
+            patch.object(item_service, "fetch_items", fake_fetch_items),
+            patch.object(item_service, "refresh_account_cookies_from_cookiecloud", AsyncMock(return_value=False)),
+            patch.object(item_service, "create_account_paused_notification") as mock_notify,
+        ):
+            await item_service.sync_items_for_account(self._make_fake_db(account), 1)
+
+        mock_notify.assert_awaited_once()
+        args, kwargs = mock_notify.call_args
+        self.assertIn(account.nickname, args)
+
+
+class ItemSyncLogTests(unittest.IsolatedAsyncioTestCase):
+    """商品同步应写 XianyuSyncLog（sync_type='item'）以补审计轨迹。"""
+
+    async def asyncSetUp(self):
+        self.engine = create_async_engine(
+            "sqlite+aiosqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+        )
+        async with self.engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        self.Session = async_sessionmaker(
+            bind=self.engine, expire_on_commit=False, autoflush=False
+        )
+
+    async def asyncTearDown(self):
+        await self.engine.dispose()
+
+    async def test_item_sync_writes_sync_log_with_item_type(self):
+        async with self.Session() as db:
+            account = XianyuAccount(
+                nickname="log-account",
+                unb="70001",
+                cookies="encrypted",
+                status="online",
+            )
+            db.add(account)
+            await db.flush()
+
+            class FakeMtop:
+                def __init__(self, cookie_str):
+                    self.cookie_str = cookie_str
+                    self.cookies_changed = False
+                    self.unb = "70001"
+
+            async def fake_fetch_user_id(mtop):
+                return "70001"
+
+            async def fake_fetch_items(mtop, *, user_id, max_pages):
+                return [
+                    {
+                        "itemId": "I-1",
+                        "title": "测试商品",
+                        "priceInfo": {"price": "9.90"},
+                        "itemStatus": 0,
+                    }
+                ]
+
+            with (
+                patch.object(item_service, "get_plain_cookies", return_value="old-cookie"),
+                patch.object(item_service, "MtopClient", FakeMtop),
+                patch.object(item_service, "_fetch_user_id", fake_fetch_user_id),
+                patch.object(item_service, "fetch_items", fake_fetch_items),
+                patch.object(item_service, "refresh_account_cookies_from_cookiecloud", AsyncMock(return_value=False)),
+                patch.object(item_service, "create_account_paused_notification"),
+            ):
+                result = await item_service.sync_items_for_account(db, account.id)
+
+            self.assertTrue(result["success"])
+            await db.flush()
+            logs = (await db.execute(select(XianyuSyncLog))).scalars().all()
+
+        self.assertEqual(len(logs), 1)
+        self.assertEqual(logs[0].account_id, account.id)
+        self.assertEqual(logs[0].status, "success")
+        self.assertEqual(logs[0].sync_type, "item")
+        self.assertEqual(logs[0].fetched, 1)
 
 
 if __name__ == "__main__":

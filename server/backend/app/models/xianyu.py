@@ -85,14 +85,15 @@ class XianyuItem(Base):
 
 
 class XianyuSyncLog(Base):
-    """订单同步日志：记录每次同步拉取/新增/跳过的数量"""
+    """同步日志：记录每次同步拉取/新增/跳过的数量（订单或商品）"""
     __tablename__ = "xianyu_sync_logs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     account_id: Mapped[int] = mapped_column(Integer, ForeignKey("xianyu_accounts.id"), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False)  # success/failed
-    fetched: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 拉取到的订单数
-    created_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 新建交易数
+    fetched: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 拉取到的订单/商品数
+    created_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 新建交易/镜像数
     skipped_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 跳过(已存在)数
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    sync_type: Mapped[str] = mapped_column(String(10), nullable=False, default="order")  # order/item
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False, index=True)

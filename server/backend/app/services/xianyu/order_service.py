@@ -541,6 +541,7 @@ async def _sync_orders_for_account_unlocked(
         created_count=created_count,
         skipped_count=skipped_count,
         error=error,
+        sync_type="order",
     ))
     await db.flush()
 
