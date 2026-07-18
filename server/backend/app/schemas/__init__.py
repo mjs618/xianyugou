@@ -14,6 +14,7 @@ from .expenses import (
     OperatingExpenseOut,
     OperatingExpenseUpdate,
 )
+from .finance import BackfillCostResponse
 from .product_templates import (
     ProductTemplateCreate,
     ProductTemplateOut,
@@ -73,6 +74,7 @@ __all__ = [
     "OperatingExpenseOut",
     "OperatingExpenseCreate",
     "OperatingExpenseUpdate",
+    "BackfillCostResponse",
     "ProductTemplateOut",
     "ProductTemplateCreate",
     "ProductTemplateUpdate",

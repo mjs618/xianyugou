@@ -24,6 +24,7 @@ EXPECTED_EXPORTS = {
     "OperatingExpenseOut",
     "OperatingExpenseCreate",
     "OperatingExpenseUpdate",
+    "BackfillCostResponse",
     "ProductTemplateOut",
     "ProductTemplateCreate",
     "ProductTemplateUpdate",

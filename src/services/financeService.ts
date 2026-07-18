@@ -3,7 +3,7 @@
 // 前端仅负责调用与返回值透传（统计结构无 Date 字段，无需归一化）。
 import type {
   FinanceOverview, TrendPoint, ProductProfitStat, CustomerValueStat, MonthlyComparisonPoint,
-  ChannelType, ChannelBreakdownItem,
+  ChannelType, ChannelBreakdownItem, BackfillCostResult,
 } from '@/types';
 import { apiClient } from './apiClient';
 
@@ -75,4 +75,12 @@ export async function getNewCustomerCountByRange(start: Date, end: Date): Promis
     end: end.toISOString(),
   });
   return r.count;
+}
+
+// 一次性回填历史 cost_price=0 交易的成本价与模板关联
+// 只回填 cost_price=0 的交易，不覆盖手动设置的成本。
+// 通过 xianyu_orders 镜像 raw_order.itemId 反查 product_templates.source_xianyu_item_id 匹配模板。
+// 后端限流 3 次/分钟（写操作 + 全表扫描 + 客户统计重算，开销大）。
+export async function backfillCost(): Promise<BackfillCostResult> {
+  return apiClient.post<BackfillCostResult>('/api/finance/backfill-cost');
 }

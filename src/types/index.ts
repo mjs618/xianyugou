@@ -320,6 +320,18 @@ export interface ChannelBreakdownItem {
   count: number;
 }
 
+// POST /api/finance/backfill-cost 响应：一次性回填历史 cost_price=0 交易的成本价
+export interface BackfillCostResult {
+  /** 找到匹配模板的交易数（含模板成本仍为 0 的） */
+  matched: number;
+  /** 实际回填了成本（模板 default_cost > 0）的交易数 */
+  backfilled: number;
+  /** 无镜像 / 无 itemId / 无匹配模板的交易数 */
+  skipped_no_template: number;
+  /** 匹配到模板但模板成本仍为 0 的交易数 */
+  skipped_zero_cost_template: number;
+}
+
 // 商品利润统计
 export interface ProductProfitStat {
   productName: string;
