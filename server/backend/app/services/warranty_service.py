@@ -9,6 +9,18 @@ from ..models import Transaction, WarrantyExtension
 from ..utils.helpers import now_utc
 
 
+class WarrantyError(ValueError):
+    """质保业务校验错误（如延长天数 ≤ 0）。路由层捕获后返回 400。"""
+
+
+class WarrantyNotFoundError(WarrantyError):
+    """交易不存在错误。路由层捕获后返回 404（与 expenses/mail_record/aftersales 一致）。
+
+    继承自 WarrantyError 以保持向后兼容：现有 except ValueError 代码
+    仍可捕获到 NotFound 场景，只是路由层会优先捕获子类返回 404。
+    """
+
+
 async def get_active_transactions(db: AsyncSession) -> list[Transaction]:
     """质保进行中（未过期）"""
     now = now_utc()
@@ -81,9 +93,9 @@ async def extend_warranty(
     """延长质保。记录历史。"""
     t = await db.get(Transaction, tx_id)
     if t is None or t.deleted_at is not None:
-        raise ValueError("交易不存在")
+        raise WarrantyNotFoundError("交易不存在")
     if days <= 0:
-        raise ValueError("延长天数必须大于 0")
+        raise WarrantyError("延长天数必须大于 0")
     old_end = t.warranty_end or now_utc()
     new_end = old_end + timedelta(days=days)
     db.add(WarrantyExtension(
@@ -101,7 +113,7 @@ async def end_warranty_early(db: AsyncSession, tx_id: int) -> Transaction:
     """提前结束质保。"""
     t = await db.get(Transaction, tx_id)
     if t is None or t.deleted_at is not None:
-        raise ValueError("交易不存在")
+        raise WarrantyNotFoundError("交易不存在")
     old_end = t.warranty_end or now_utc()
     new_end = now_utc()
     db.add(WarrantyExtension(
