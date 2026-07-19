@@ -15,6 +15,18 @@ class TagError(ValueError):
     pass
 
 
+class TagNotFoundError(TagError):
+    """资源不存在错误（标签或客户）。路由层捕获后返回 404
+    （与 expenses/mail_record/aftersales/warranty 一致）。
+
+    继承自 TagError 以保持向后兼容：现有 except TagError 代码
+    仍可捕获到 NotFound 场景，只是路由层会优先捕获子类返回 404。
+
+    同时表示「标签不存在」（delete_tag）与「客户不存在」（set_customer_tags），
+    因为两者在 customer-tag 模块语义上都是「关联资源不存在」。
+    """
+
+
 async def list_tags(db: AsyncSession) -> list[CustomerTag]:
     stmt = select(CustomerTag).order_by(CustomerTag.created_at.asc())
     return list((await db.execute(stmt)).scalars().all())
@@ -36,10 +48,10 @@ async def create_tag(db: AsyncSession, name: str, color: Optional[str] = None) -
 
 
 async def delete_tag(db: AsyncSession, tag_id: int) -> None:
-    """删除标签 + 级联清理客户 tags 字段 + 关联表。"""
+    """删除标签 + 级联清理客户 tags 字段 + 关联表。不存在时抛 TagNotFoundError。"""
     tag = await db.get(CustomerTag, tag_id)
     if tag is None:
-        return
+        raise TagNotFoundError("标签不存在")
     # 查找关联了此标签的客户，从其 tags 数组移除标签名
     relations = list((await db.execute(
         select(CustomerTagRelation).where(CustomerTagRelation.tag_id == tag_id)
@@ -81,7 +93,7 @@ async def set_customer_tags(db: AsyncSession, customer_id: int, tag_names: list[
     """为客户设置标签：自动建缺失标签 + 更新客户 tags 字段 + 重建关联。"""
     customer = await db.get(Customer, customer_id)
     if customer is None or customer.deleted_at is not None:
-        raise TagError("客户不存在")
+        raise TagNotFoundError("客户不存在")
 
     cleaned = [n.strip() for n in tag_names if n and n.strip()]
 

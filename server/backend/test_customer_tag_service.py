@@ -4,7 +4,7 @@
 1. delete_tag 删除标签定义
 2. delete_tag 删除 CustomerTagRelation 关联关系
 3. delete_tag 从客户的 tags 数组中移除标签名
-4. delete_tag 不存在的标签幂等返回
+4. delete_tag 不存在的标签抛 TagNotFoundError（404 语义对齐）
 5. delete_tag 客户不存在时不报错
 6. delete_tag 批量清理多个客户的 tags（验证批量化不丢数据）
 7. set_customer_tags 自动建标签 + 重建关联
@@ -20,6 +20,7 @@ from app.services.customer_tag_service import (
     delete_tag,
     get_customer_tags,
     set_customer_tags,
+    TagNotFoundError,
 )
 
 
@@ -116,11 +117,11 @@ class CustomerTagServiceTests(unittest.IsolatedAsyncioTestCase):
             c = await db.get(Customer, 1)
             self.assertEqual(c.tags, ["高消费"])
 
-    async def test_delete_nonexistent_tag_is_idempotent(self):
-        """删除不存在的标签幂等返回（不报错）。"""
+    async def test_delete_nonexistent_tag_raises_not_found(self):
+        """删除不存在的标签抛 TagNotFoundError（对齐 expenses/mail_record 404 语义）。"""
         async with self.Session() as db:
-            # 不存在的 tag_id：不应抛异常
-            await delete_tag(db, 99999)
+            with self.assertRaises(TagNotFoundError):
+                await delete_tag(db, 99999)
 
     async def test_delete_tag_handles_missing_customer_gracefully(self):
         """delete_tag 遇到关联但客户不存在的孤儿 relation 时不报错。

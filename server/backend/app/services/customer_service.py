@@ -19,6 +19,14 @@ class CustomerError(ValueError):
     pass
 
 
+class CustomerNotFoundError(CustomerError):
+    """客户不存在错误。路由层捕获后返回 404（与 expenses/mail_record/aftersales 一致）。
+
+    继承自 CustomerError 以保持向后兼容：现有 except CustomerError 代码
+    仍可捕获到 NotFound 场景，只是路由层会优先捕获子类返回 404。
+    """
+
+
 async def find_by_nickname(db: AsyncSession, nickname: str) -> Optional[Customer]:
     """按昵称查找（不区分大小写，排除已软删除）"""
     stmt = select(Customer).where(
@@ -94,7 +102,7 @@ async def update_customer(db: AsyncSession, customer_id: int, patch: dict, expec
     """更新客户。乐观锁 + 昵称唯一性校验。"""
     c = await get_customer(db, customer_id)
     if c is None:
-        raise CustomerError("客户不存在")
+        raise CustomerNotFoundError("客户不存在")
 
     # 乐观锁：传入 expected_version 时校验一致性
     if expected_version is not None and expected_version != c.version:
@@ -130,7 +138,7 @@ async def update_customer(db: AsyncSession, customer_id: int, patch: dict, expec
 async def soft_delete_customer(db: AsyncSession, customer_id: int) -> None:
     c = await get_customer(db, customer_id)
     if c is None:
-        raise CustomerError("客户不存在")
+        raise CustomerNotFoundError("客户不存在")
 
     # 校验无关联未删除交易
     cnt_stmt = select(func.count(Transaction.id)).where(
@@ -232,7 +240,7 @@ async def recalc_all_customers_stats(db: AsyncSession) -> int:
 async def toggle_blacklist(db: AsyncSession, customer_id: int) -> Customer:
     c = await get_customer(db, customer_id)
     if c is None:
-        raise CustomerError("客户不存在")
+        raise CustomerNotFoundError("客户不存在")
     c.is_blacklist = not c.is_blacklist
     c.updated_at = now_utc()
     await db.flush()
