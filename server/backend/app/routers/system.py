@@ -38,7 +38,8 @@ _SAFE_FILENAME_RE = re.compile(r"^[a-zA-Z0-9_.\-]+$")
 
 
 @router.get("/backups", response_model=BackupListResponse)
-async def list_backups():
+@limiter.limit("100/minute")
+async def list_backups(request: Request):
     """列出可用的服务器备份文件。
 
     扫描备份目录下的 .db 文件，读取对应 manifest 获取表行数与完整性。
