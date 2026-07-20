@@ -14,6 +14,11 @@ class RebateError(ValueError):
     pass
 
 
+class RebateNotFoundError(RebateError):
+    """返利记录不存在（路由层捕获后返回 404，对齐 aftersales/warranty/customers）。"""
+    pass
+
+
 # 合法流转：pending → paid/cancelled；paid → cancelled；其余非法
 VALID_TRANSITIONS = {
     "pending": ["paid", "cancelled"],
@@ -79,7 +84,7 @@ async def get_total_paid(db: AsyncSession) -> float:
 async def mark_paid(db: AsyncSession, rebate_id: int, notes: str | None = None) -> RebateRecord:
     r = await get_rebate(db, rebate_id)
     if r is None:
-        raise RebateError("返利记录不存在")
+        raise RebateNotFoundError("返利记录不存在")
     _validate_transition(r.status, "paid")
     r.status = "paid"
     r.paid_at = now_utc()
@@ -93,7 +98,7 @@ async def mark_paid(db: AsyncSession, rebate_id: int, notes: str | None = None) 
 async def cancel_rebate(db: AsyncSession, rebate_id: int, notes: str | None = None) -> RebateRecord:
     r = await get_rebate(db, rebate_id)
     if r is None:
-        raise RebateError("返利记录不存在")
+        raise RebateNotFoundError("返利记录不存在")
     _validate_transition(r.status, "cancelled")
     r.status = "cancelled"
     if notes is not None:
