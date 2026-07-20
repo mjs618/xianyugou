@@ -57,9 +57,12 @@ async def list_notifications(db: AsyncSession, limit: int = 50) -> list[Notifica
 
 
 async def mark_as_read(db: AsyncSession, nid: int) -> None:
+    """标记单条通知为已读。不存在时抛 ValueError（路由返回 404，
+    对齐 mail_record/product_template 等 delete 不存在资源的行为）。"""
     n = await db.get(NotificationRecord, nid)
-    if n:
-        n.status = "read"
+    if n is None:
+        raise ValueError("通知不存在")
+    n.status = "read"
 
 
 async def mark_all_as_read(db: AsyncSession) -> None:
@@ -69,9 +72,11 @@ async def mark_all_as_read(db: AsyncSession) -> None:
 
 
 async def dismiss(db: AsyncSession, nid: int) -> None:
+    """忽略单条通知。不存在时抛 ValueError（路由返回 404）。"""
     n = await db.get(NotificationRecord, nid)
-    if n:
-        n.status = "dismissed"
+    if n is None:
+        raise ValueError("通知不存在")
+    n.status = "dismissed"
 
 
 async def get_pending_summary(db: AsyncSession) -> dict:
