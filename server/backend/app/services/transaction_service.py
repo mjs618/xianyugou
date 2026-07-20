@@ -29,6 +29,11 @@ class TransactionError(ValueError):
     pass
 
 
+class TransactionNotFoundError(TransactionError):
+    """交易不存在（路由层捕获后返回 404，对齐 aftersales/warranty/customers/rebates）。"""
+    pass
+
+
 def _validate_prices(sale_price: float, cost_price: float, warranty_days: Optional[int]) -> None:
     if sale_price < 0:
         raise TransactionError("售价不能为负数")
@@ -190,7 +195,7 @@ async def change_status(db: AsyncSession, tx_id: int, status: str, expected_vers
     """修改交易状态。completed 时补质保到期；回退 pending 时清质保。"""
     t = await get_transaction(db, tx_id)
     if t is None:
-        raise TransactionError("交易不存在")
+        raise TransactionNotFoundError("交易不存在")
     if expected_version is not None and expected_version != t.version:
         raise ConcurrencyError("交易已被其他操作修改，请刷新后重试")
     old_status = t.status
@@ -219,7 +224,7 @@ async def update_transaction(db: AsyncSession, tx_id: int, patch: dict, expected
     """更新交易。复刻 updateTransaction 的级联（客户累计、返利联动）。"""
     t = await get_transaction(db, tx_id)
     if t is None:
-        raise TransactionError("交易不存在")
+        raise TransactionNotFoundError("交易不存在")
     if expected_version is not None and expected_version != t.version:
         raise ConcurrencyError("交易已被其他操作修改，请刷新后重试")
 
@@ -279,10 +284,16 @@ async def update_transaction(db: AsyncSession, tx_id: int, patch: dict, expected
 
 
 async def soft_delete_transaction(db: AsyncSession, tx_id: int) -> None:
-    """软删除交易 + 级联清理（软删售后工单、取消返利）。"""
+    """软删除交易 + 级联清理（软删售后工单、取消返利）。
+
+    不存在时抛 TransactionNotFoundError（路由返回 404）；已软删除时幂等返回。
+    """
     from ..models import AfterSales, RebateRecord
     t = await db.get(Transaction, tx_id)
-    if t is None or t.deleted_at is not None:
+    if t is None:
+        raise TransactionNotFoundError("交易不存在")
+    if t.deleted_at is not None:
+        # 已软删除，幂等返回
         return
     now = now_utc()
     t.deleted_at = now
