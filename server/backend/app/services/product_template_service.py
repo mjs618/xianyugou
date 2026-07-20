@@ -36,9 +36,12 @@ async def update_template(db: AsyncSession, tpl_id: int, patch: dict) -> Product
 
 
 async def delete_template(db: AsyncSession, tpl_id: int) -> None:
+    """删除模板。不存在时抛 ValueError（与 update_template/toggle_active 一致，
+    路由层捕获后返回 404，对齐 expenses/mail_record/aftersales/warranty/customers）。"""
     t = await db.get(ProductTemplate, tpl_id)
-    if t is not None:
-        await db.delete(t)
+    if t is None:
+        raise ValueError("模板不存在")
+    await db.delete(t)
 
 
 async def toggle_active(db: AsyncSession, tpl_id: int) -> ProductTemplate:

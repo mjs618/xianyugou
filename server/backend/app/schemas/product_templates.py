@@ -23,8 +23,8 @@ class ProductTemplateOut(ORMBase):
 
 class ProductTemplateCreate(BaseModel):
     name: str
-    default_cost: float
-    default_sale_price: Optional[float] = None
+    default_cost: float = Field(ge=0)
+    default_sale_price: Optional[float] = Field(default=None, ge=0)
     category: Optional[str] = None
     image_url: Optional[str] = None
     warranty_days: int = Field(default=30, ge=0)
@@ -35,8 +35,8 @@ class ProductTemplateCreate(BaseModel):
 
 class ProductTemplateUpdate(BaseModel):
     name: Optional[str] = None
-    default_cost: Optional[float] = None
-    default_sale_price: Optional[float] = None
+    default_cost: Optional[float] = Field(default=None, ge=0)
+    default_sale_price: Optional[float] = Field(default=None, ge=0)
     category: Optional[str] = None
     image_url: Optional[str] = None
     warranty_days: Optional[int] = Field(default=None, ge=0)
