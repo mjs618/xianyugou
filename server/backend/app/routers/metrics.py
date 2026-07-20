@@ -5,7 +5,7 @@ GET /api/metrics：聚合账号状态、同步、备份、通知等运维关键�
 """
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,13 +17,15 @@ from ..schemas.metrics import (
     MetricsResponse,
     SyncMetrics,
 )
+from ..security import limiter
 from ..utils.helpers import now_utc
 
 router = APIRouter(prefix="/api/metrics", tags=["system"])
 
 
 @router.get("", response_model=MetricsResponse)
-async def get_metrics(db: AsyncSession = Depends(get_db)):
+@limiter.limit("100/minute")
+async def get_metrics(request: Request, db: AsyncSession = Depends(get_db)):
     """返回业务监控指标 JSON。
 
     覆盖：
