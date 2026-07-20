@@ -12,8 +12,13 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
 @router.get("/token-status", response_model=TokenStatus)
-async def token_status():
-    """返回后端 token 是否已配置。前端据此引导用户输入 token。"""
+@limiter.limit("100/minute")
+async def token_status(request: Request):
+    """返回后端 token 是否已配置。前端据此引导用户输入 token。
+
+    限流 100 次/分钟/IP（对齐 project_memory 硬约束「100 req/min for read endpoints」），
+    缓解未认证探测。
+    """
     return TokenStatus(token_configured=is_token_configured())
 
 
