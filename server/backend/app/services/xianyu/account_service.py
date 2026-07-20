@@ -19,6 +19,11 @@ class XianyuAccountError(ValueError):
     pass
 
 
+class XianyuAccountNotFoundError(XianyuAccountError):
+    """闲鱼账号不存在（路由层捕获后返回 404，对齐 aftersales/warranty/customers/rebates/transactions）。"""
+    pass
+
+
 class XianyuSyncPausedError(XianyuAccountError):
     pass
 
@@ -42,10 +47,10 @@ async def ensure_manual_order_sync_allowed(
 ) -> XianyuAccount:
     account = await get_account(db, account_id)
     if account is None:
-        raise XianyuAccountError("闲鱼账号不存在")
+        raise XianyuAccountNotFoundError("闲鱼账号不存在")
     # P2-3 软删除：已删除账号禁止同步
     if account.deleted_at is not None:
-        raise XianyuAccountError("闲鱼账号已删除")
+        raise XianyuAccountNotFoundError("闲鱼账号已删除")
     ensure_account_not_paused(account)
     if account.last_sync_at is not None:
         earliest_retry = account.last_sync_at + timedelta(
@@ -99,10 +104,10 @@ async def create_account(db: AsyncSession, *, nickname: str, cookies: str) -> Xi
 async def update_account(db: AsyncSession, account_id: int, patch: dict) -> XianyuAccount:
     account = await get_account(db, account_id)
     if account is None:
-        raise XianyuAccountError("闲鱼账号不存在")
+        raise XianyuAccountNotFoundError("闲鱼账号不存在")
     # P2-3 软删除：已删除账号禁止修改
     if account.deleted_at is not None:
-        raise XianyuAccountError("闲鱼账号已删除，无法修改")
+        raise XianyuAccountNotFoundError("闲鱼账号已删除，无法修改")
     if "nickname" in patch and patch["nickname"] is not None:
         account.nickname = patch["nickname"].strip()
     if "cookies" in patch and patch["cookies"]:
@@ -140,10 +145,10 @@ async def recover_account(db: AsyncSession, account_id: int) -> XianyuAccount:
     """
     account = await get_account(db, account_id)
     if account is None:
-        raise XianyuAccountError("闲鱼账号不存在")
+        raise XianyuAccountNotFoundError("闲鱼账号不存在")
     # P2-3 软删除：已删除账号禁止恢复
     if account.deleted_at is not None:
-        raise XianyuAccountError("闲鱼账号已删除")
+        raise XianyuAccountNotFoundError("闲鱼账号已删除")
     if account.status != "paused":
         raise XianyuAccountError("账号未处于暂停状态，无需恢复")
     if account.paused_at is not None and account.updated_at <= account.paused_at:
@@ -174,10 +179,12 @@ async def delete_account(db: AsyncSession, account_id: int) -> None:
 
     硬删除会破坏 XianyuOrder / XianyuSyncLog / XianyuItem 等外键关系，
     软删除既保留历史数据又使账号在列表中不可见。
+
+    不存在时抛 XianyuAccountNotFoundError（路由返回 404）；已软删除时幂等返回。
     """
     account = await get_account(db, account_id)
     if account is None:
-        return
+        raise XianyuAccountNotFoundError("闲鱼账号不存在")
     if account.deleted_at is not None:
         # 已软删除，幂等返回
         return
@@ -194,10 +201,10 @@ async def test_account(db: AsyncSession, account_id: int) -> dict:
     """校验账号 Cookie 有效性（仅本地解析校验，不发起网络请求）。"""
     account = await get_account(db, account_id)
     if account is None:
-        raise XianyuAccountError("闲鱼账号不存在")
+        raise XianyuAccountNotFoundError("闲鱼账号不存在")
     # P2-3 软删除：已删除账号禁止测试
     if account.deleted_at is not None:
-        raise XianyuAccountError("闲鱼账号已删除")
+        raise XianyuAccountNotFoundError("闲鱼账号已删除")
     plain_cookies = decrypt_field(account.cookies)
     valid, unb, message = validate_cookies(plain_cookies)
     return {"valid": valid, "unb": unb or account.unb, "message": message}

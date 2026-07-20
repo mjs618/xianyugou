@@ -1,5 +1,21 @@
-"""闲鱼账号与订单同步路由（第二阶段）"""
-from fastapi import APIRouter, Depends, HTTPException, Query
+"""闲鱼账号与订单同步路由（第二阶段）
+
+限流策略（project_memory 硬约束：100 req/min for read, stricter for write）：
+- GET /api/xianyu/cookiecloud/status → 100/minute（读端点）
+- GET /api/xianyu/accounts → 100/minute（读端点）
+- POST /api/xianyu/accounts → 30/minute（写端点）
+- PATCH /api/xianyu/accounts/{id} → 30/minute（写端点）
+- DELETE /api/xianyu/accounts/{id} → 30/minute（写端点）
+- POST /api/xianyu/accounts/{id}/test → 30/minute（写端点）
+- POST /api/xianyu/accounts/{id}/recover → 30/minute（写端点）
+- POST /api/xianyu/accounts/{id}/sync-orders → 30/minute（写端点，触发同步）
+- GET /api/xianyu/accounts/{id}/orders → 100/minute（读端点）
+- POST /api/xianyu/accounts/{id}/sync-items → 30/minute（写端点）
+- GET /api/xianyu/accounts/{id}/items → 100/minute（读端点）
+- POST /api/xianyu/accounts/{id}/items/import-templates → 30/minute（写端点）
+- GET /api/xianyu/accounts/{id}/sync-logs → 100/minute（读端点）
+"""
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
@@ -9,9 +25,11 @@ from ..schemas import (
     XianyuItemImportRequest, XianyuItemImportResult, XianyuItemOut, XianyuItemSyncResult,
     XianyuOrderOut,
 )
+from ..security import limiter
 from ..services.xianyu import account_service
 from ..services.xianyu.account_service import (
     XianyuAccountError,
+    XianyuAccountNotFoundError,
     XianyuSyncPausedError,
     XianyuSyncRateLimitedError,
 )
@@ -31,19 +49,26 @@ router = APIRouter(prefix="/api/xianyu", tags=["xianyu"])
 
 
 @router.get("/cookiecloud/status", response_model=CookieCloudConfigStatus)
-async def cookiecloud_status():
+@limiter.limit("100/minute")
+async def cookiecloud_status(request: Request):
     return get_cookiecloud_config_status()
 
 
 @router.get("/accounts", response_model=list[XianyuAccountOut])
-async def list_accounts(db: AsyncSession = Depends(get_db)):
+@limiter.limit("100/minute")
+async def list_accounts(request: Request, db: AsyncSession = Depends(get_db)):
     items = await account_service.list_accounts(db)
     await db.commit()
     return items
 
 
 @router.post("/accounts", response_model=XianyuAccountOut)
-async def create_account(payload: XianyuAccountCreate, db: AsyncSession = Depends(get_db)):
+@limiter.limit("30/minute")
+async def create_account(
+    request: Request,
+    payload: XianyuAccountCreate,
+    db: AsyncSession = Depends(get_db),
+):
     try:
         account = await account_service.create_account(db, nickname=payload.nickname, cookies=payload.cookies)
         await db.commit()
@@ -53,7 +78,9 @@ async def create_account(payload: XianyuAccountCreate, db: AsyncSession = Depend
 
 
 @router.patch("/accounts/{account_id}", response_model=XianyuAccountOut)
+@limiter.limit("30/minute")
 async def update_account(
+    request: Request,
     account_id: int,
     payload: XianyuAccountUpdate,
     db: AsyncSession = Depends(get_db),
@@ -66,30 +93,45 @@ async def update_account(
         )
         await db.commit()
         return account
+    except XianyuAccountNotFoundError as e:
+        raise HTTPException(404, str(e))
     except XianyuAccountError as e:
-        status_code = 404 if str(e) == "闲鱼账号不存在" else 400
-        raise HTTPException(status_code, str(e))
+        raise HTTPException(400, str(e))
 
 
 @router.delete("/accounts/{account_id}")
-async def delete_account(account_id: int, db: AsyncSession = Depends(get_db)):
-    await account_service.delete_account(db, account_id)
-    await db.commit()
-    return {"message": "已删除"}
+@limiter.limit("30/minute")
+async def delete_account(
+    request: Request, account_id: int, db: AsyncSession = Depends(get_db)
+):
+    try:
+        await account_service.delete_account(db, account_id)
+        await db.commit()
+        return {"message": "已删除"}
+    except XianyuAccountNotFoundError as e:
+        raise HTTPException(404, str(e))
 
 
 @router.post("/accounts/{account_id}/test", response_model=XianyuAccountTestResult)
-async def test_account(account_id: int, db: AsyncSession = Depends(get_db)):
+@limiter.limit("30/minute")
+async def test_account(
+    request: Request, account_id: int, db: AsyncSession = Depends(get_db)
+):
     try:
         result = await account_service.test_account(db, account_id)
         await db.commit()
         return result
-    except XianyuAccountError as e:
+    except XianyuAccountNotFoundError as e:
         raise HTTPException(404, str(e))
+    except XianyuAccountError as e:
+        raise HTTPException(400, str(e))
 
 
 @router.post("/accounts/{account_id}/recover", response_model=XianyuAccountOut)
-async def recover_account(account_id: int, db: AsyncSession = Depends(get_db)):
+@limiter.limit("30/minute")
+async def recover_account(
+    request: Request, account_id: int, db: AsyncSession = Depends(get_db)
+):
     """从熔断暂停状态恢复。
 
     对应设计文档 P3：暂停后必须人工更新 Cookie、通过只读校验并点击恢复。
@@ -101,13 +143,16 @@ async def recover_account(account_id: int, db: AsyncSession = Depends(get_db)):
         account = await account_service.recover_account(db, account_id)
         await db.commit()
         return account
+    except XianyuAccountNotFoundError as e:
+        raise HTTPException(404, str(e))
     except XianyuAccountError as e:
-        status_code = 404 if str(e) == "闲鱼账号不存在" else 400
-        raise HTTPException(status_code, str(e))
+        raise HTTPException(400, str(e))
 
 
 @router.post("/accounts/{account_id}/sync-orders", response_model=XianyuSyncResult)
+@limiter.limit("30/minute")
 async def sync_orders(
+    request: Request,
     account_id: int,
     max_pages: int = Query(10, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
@@ -124,12 +169,16 @@ async def sync_orders(
         raise HTTPException(409, str(e))
     except SyncAlreadyRunningError as e:
         raise HTTPException(409, str(e))
-    except XianyuAccountError as e:
+    except XianyuAccountNotFoundError as e:
         raise HTTPException(404, str(e))
+    except XianyuAccountError as e:
+        raise HTTPException(400, str(e))
 
 
 @router.get("/accounts/{account_id}/orders", response_model=list[XianyuOrderOut])
+@limiter.limit("100/minute")
 async def list_orders(
+    request: Request,
     account_id: int,
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
@@ -143,7 +192,9 @@ async def list_orders(
 
 
 @router.post("/accounts/{account_id}/sync-items", response_model=XianyuItemSyncResult)
+@limiter.limit("30/minute")
 async def sync_items(
+    request: Request,
     account_id: int,
     max_pages: int = Query(5, ge=1, le=20),
     db: AsyncSession = Depends(get_db),
@@ -155,12 +206,18 @@ async def sync_items(
         return result
     except XianyuSyncPausedError as e:
         raise HTTPException(409, str(e))
+    except XianyuAccountNotFoundError as e:
+        raise HTTPException(404, str(e))
+    except XianyuAccountError as e:
+        raise HTTPException(400, str(e))
     except ValueError as e:
         raise HTTPException(404, str(e))
 
 
 @router.get("/accounts/{account_id}/items", response_model=list[XianyuItemOut])
+@limiter.limit("100/minute")
 async def list_items(
+    request: Request,
     account_id: int,
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
@@ -174,7 +231,9 @@ async def list_items(
 
 
 @router.post("/accounts/{account_id}/items/import-templates", response_model=XianyuItemImportResult)
+@limiter.limit("30/minute")
 async def import_items_as_templates(
+    request: Request,
     account_id: int,
     payload: XianyuItemImportRequest,
     db: AsyncSession = Depends(get_db),
@@ -194,7 +253,9 @@ async def import_items_as_templates(
 
 
 @router.get("/accounts/{account_id}/sync-logs")
+@limiter.limit("100/minute")
 async def list_sync_logs(
+    request: Request,
     account_id: int,
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
