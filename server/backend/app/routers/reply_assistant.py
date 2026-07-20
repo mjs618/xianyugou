@@ -1,5 +1,16 @@
-"""回复助手配置、规则与候选生成接口。"""
-from fastapi import APIRouter, Depends, HTTPException
+"""回复助手配置、规则与候选生成接口。
+
+限流策略（project_memory 硬约束：100 req/min for read, stricter for write）：
+- GET /api/reply-assistant/settings → 100/minute（读端点）
+- PUT /api/reply-assistant/settings → 30/minute（写端点）
+- GET /api/reply-assistant/rules → 100/minute（读端点）
+- POST /api/reply-assistant/rules → 30/minute（写端点）
+- PATCH /api/reply-assistant/rules/{rule_id} → 30/minute（写端点）
+- DELETE /api/reply-assistant/rules/{rule_id} → 30/minute（写端点）
+- POST /api/reply-assistant/suggestions → 30/minute（写端点，触发 LLM 调用）
+- POST /api/reply-assistant/risk-check → 30/minute（写端点）
+"""
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
@@ -14,6 +25,7 @@ from ..schemas.reply_assistant import (
     RiskCheckRequest,
     RiskCheckResponse,
 )
+from ..security import limiter
 from ..services import reply_assistant_service
 from ..services.llm_client import LlmClientError
 
@@ -29,12 +41,15 @@ def _http_error(exc: ReplyAssistantError | LlmClientError) -> HTTPException:
     )
 
 @router.get("/settings", response_model=ReplyAssistantSettingsOut)
-async def get_settings(db: AsyncSession = Depends(get_db)):
+@limiter.limit("100/minute")
+async def get_settings(request: Request, db: AsyncSession = Depends(get_db)):
     return await reply_assistant_service.get_public_settings(db)
 
 
 @router.put("/settings", response_model=ReplyAssistantSettingsOut)
+@limiter.limit("30/minute")
 async def update_settings(
+    request: Request,
     payload: ReplyAssistantSettingsUpdate,
     db: AsyncSession = Depends(get_db),
 ):
@@ -47,12 +62,15 @@ async def update_settings(
 
 
 @router.get("/rules", response_model=list[ReplyRuleOut])
-async def list_rules(db: AsyncSession = Depends(get_db)):
+@limiter.limit("100/minute")
+async def list_rules(request: Request, db: AsyncSession = Depends(get_db)):
     return await reply_assistant_service.list_rules(db)
 
 
 @router.post("/rules", response_model=ReplyRuleOut)
+@limiter.limit("30/minute")
 async def create_rule(
+    request: Request,
     payload: ReplyRuleCreate,
     db: AsyncSession = Depends(get_db),
 ):
@@ -66,7 +84,9 @@ async def create_rule(
 
 
 @router.patch("/rules/{rule_id}", response_model=ReplyRuleOut)
+@limiter.limit("30/minute")
 async def update_rule(
+    request: Request,
     rule_id: int,
     payload: ReplyRuleUpdate,
     db: AsyncSession = Depends(get_db),
@@ -81,7 +101,10 @@ async def update_rule(
 
 
 @router.delete("/rules/{rule_id}")
-async def delete_rule(rule_id: int, db: AsyncSession = Depends(get_db)):
+@limiter.limit("30/minute")
+async def delete_rule(
+    request: Request, rule_id: int, db: AsyncSession = Depends(get_db)
+):
     try:
         await reply_assistant_service.delete_rule(db, rule_id)
         await db.commit()
@@ -91,7 +114,9 @@ async def delete_rule(rule_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/suggestions", response_model=ReplySuggestionOut)
+@limiter.limit("30/minute")
 async def generate_suggestion(
+    request: Request,
     payload: ReplySuggestionRequest,
     db: AsyncSession = Depends(get_db),
 ):
@@ -104,7 +129,8 @@ async def generate_suggestion(
 
 
 @router.post("/risk-check", response_model=RiskCheckResponse)
-async def check_risk(payload: RiskCheckRequest):
+@limiter.limit("30/minute")
+async def check_risk(request: Request, payload: RiskCheckRequest):
     risk_level, risk_reasons = reply_assistant_service.check_reply_risk(payload.text)
     return RiskCheckResponse(
         risk_level=risk_level, risk_reasons=risk_reasons
