@@ -24,6 +24,9 @@ env/
 .env
 .env.*
 !.env.example
+api.token
+api.token.bak
+*.secret
 
 # Logs
 logs/
