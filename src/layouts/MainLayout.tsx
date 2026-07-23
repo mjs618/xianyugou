@@ -202,7 +202,7 @@ export default function MainLayout() {
           id="main-content"
           tabIndex={-1}
           className={isMobile ? 'mobile-content' : undefined}
-          style={{ padding: isMobile ? 12 : 20, overflow: 'auto', paddingBottom: isMobile ? 68 : 20 }}
+          style={{ padding: isMobile ? 12 : 20, overflow: 'auto', paddingBottom: isMobile ? undefined : 20 }}
         >
           <div key={location.pathname} className="page-fade-enter">
             <Outlet />
@@ -224,10 +224,10 @@ export default function MainLayout() {
                 aria-label={item.label}
                 aria-current={isActive ? 'page' : undefined}
               >
-                {item.icon}
-                <Badge count={getNavigationBadgeCount(item.key, pendingSummary)} size="small" offset={[8, -2]}>
-                  <span style={{ marginTop: 2 }}>{item.label}</span>
+                <Badge count={getNavigationBadgeCount(item.key, pendingSummary)} size="small" offset={[-2, -2]} overflowCount={99}>
+                  {item.icon}
                 </Badge>
+                <span style={{ marginTop: 2 }}>{item.label}</span>
               </button>
             );
           })}

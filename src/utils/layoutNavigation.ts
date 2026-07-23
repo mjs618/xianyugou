@@ -28,7 +28,7 @@ function renderIconWithBadge(icon: ReactNode, count: number) {
 
   return createElement(
     Badge,
-    { count, size: 'small', offset: [2, -2] },
+    { count, size: 'small', offset: [0, -2], overflowCount: 99 },
     createElement('span', { style: { display: 'inline-flex' } }, icon),
   );
 }

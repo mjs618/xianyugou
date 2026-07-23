@@ -299,6 +299,12 @@ body {
   font-weight: 600 !important;
 }
 
+/* ===== 侧边栏折叠态 Badge 修复 ===== */
+/* 折叠态下 li.ant-menu-item 默认 overflow:hidden 会裁剪 Badge 数字 */
+.ant-layout-sider-collapsed .ant-menu-item {
+  overflow: visible !important;
+}
+
 /* ===== 移动端底部导航 ===== */
 .mobile-bottom-nav {
   display: none;

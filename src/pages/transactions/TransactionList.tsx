@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Card, Table, Button, Space, Input, Select, DatePicker, Tag, Popconfirm, message, Row, Col, Dropdown, Segmented, Empty, Switch, Tooltip, Modal, Result } from 'antd';
+import { Card, Table, Button, Space, Input, Select, DatePicker, Tag, Popconfirm, message, Row, Col, Dropdown, Segmented, Empty, Switch, Tooltip, Modal, Result, Grid } from 'antd';
 import { PlusOutlined, ExportOutlined, DeleteOutlined, EditOutlined, EyeOutlined, DownOutlined, ClockCircleOutlined, CustomerServiceOutlined, CopyOutlined, ReloadOutlined } from '@ant-design/icons';
 import { Link, useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -15,6 +15,7 @@ import { useAppStore } from '@/store/useAppStore';
 import type { Transaction, TransactionStatus, ChannelType } from '@/types';
 
 const { RangePicker } = DatePicker;
+const { useBreakpoint } = Grid;
 
 const statusMap: Record<TransactionStatus, { label: string; color: string }> = {
   pending: { label: '待发货', color: 'blue' },
@@ -26,6 +27,8 @@ const statusMap: Record<TransactionStatus, { label: string; color: string }> = {
 export default function TransactionList() {
   const navigate = useNavigate();
   const { refreshAll } = useAppStore();
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<Transaction[]>([]);
   const [customers, setCustomers] = useState<Map<number, string>>(new Map());
@@ -190,6 +193,7 @@ export default function TransactionList() {
       title: '商品名称',
       dataIndex: 'product_name',
       ellipsis: true,
+      minWidth: 150,
     },
     {
       title: '售价',
@@ -253,6 +257,12 @@ export default function TransactionList() {
       ),
     },
   ];
+
+  // 移动端隐藏非核心列，避免表格列被严重压缩导致商品名称截断
+  const hiddenOnMobile = new Set(['channel', 'profit', 'customer_id', 'trade_at']);
+  const visibleColumns = isMobile
+    ? columns.filter((c) => !hiddenOnMobile.has(c.dataIndex as string))
+    : columns;
 
   return (
     <Card
@@ -357,8 +367,8 @@ export default function TransactionList() {
         rowKey="id"
         loading={loading}
         dataSource={filtered.slice((page - 1) * pageSize, page * pageSize)}
-        columns={columns}
-        scroll={{ x: 1170 }}
+        columns={visibleColumns}
+        scroll={{ x: isMobile ? 780 : 1170 }}
         size="middle"
         locale={{
           emptyText: data.length === 0 ? (
