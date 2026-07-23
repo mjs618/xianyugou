@@ -1,8 +1,7 @@
 """返利服务 - 复刻前端 rebateService.ts（状态机 + 重算）。"""
 from __future__ import annotations
 
-from datetime import datetime
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import RebateRecord, Transaction
@@ -12,6 +11,11 @@ from .settings_service import get_settings
 
 
 class RebateError(ValueError):
+    pass
+
+
+class RebateNotFoundError(RebateError):
+    """返利记录不存在（路由层捕获后返回 404，对齐 aftersales/warranty/customers）。"""
     pass
 
 
@@ -52,7 +56,6 @@ async def list_by_referrer(db: AsyncSession, referrer_id: int) -> list[RebateRec
 
 
 async def get_pending_count(db: AsyncSession) -> int:
-    from sqlalchemy import func
     return (
         await db.execute(
             select(func.count(RebateRecord.id)).where(RebateRecord.status == "pending")
@@ -61,7 +64,6 @@ async def get_pending_count(db: AsyncSession) -> int:
 
 
 async def get_pending_total(db: AsyncSession) -> float:
-    from sqlalchemy import func
     total = (
         await db.execute(
             select(func.coalesce(func.sum(RebateRecord.amount), 0)).where(RebateRecord.status == "pending")
@@ -71,7 +73,6 @@ async def get_pending_total(db: AsyncSession) -> float:
 
 
 async def get_total_paid(db: AsyncSession) -> float:
-    from sqlalchemy import func
     total = (
         await db.execute(
             select(func.coalesce(func.sum(RebateRecord.amount), 0)).where(RebateRecord.status == "paid")
@@ -83,7 +84,7 @@ async def get_total_paid(db: AsyncSession) -> float:
 async def mark_paid(db: AsyncSession, rebate_id: int, notes: str | None = None) -> RebateRecord:
     r = await get_rebate(db, rebate_id)
     if r is None:
-        raise RebateError("返利记录不存在")
+        raise RebateNotFoundError("返利记录不存在")
     _validate_transition(r.status, "paid")
     r.status = "paid"
     r.paid_at = now_utc()
@@ -97,7 +98,7 @@ async def mark_paid(db: AsyncSession, rebate_id: int, notes: str | None = None) 
 async def cancel_rebate(db: AsyncSession, rebate_id: int, notes: str | None = None) -> RebateRecord:
     r = await get_rebate(db, rebate_id)
     if r is None:
-        raise RebateError("返利记录不存在")
+        raise RebateNotFoundError("返利记录不存在")
     _validate_transition(r.status, "cancelled")
     r.status = "cancelled"
     if notes is not None:
@@ -110,27 +111,34 @@ async def cancel_rebate(db: AsyncSession, rebate_id: int, notes: str | None = No
 async def batch_pay(db: AsyncSession, ids: list[int]) -> dict:
     """批量结算。只结算 pending，跳过非法状态。"""
     now = now_utc()
-    valid_ids: list[int] = []
+    # 批量加载所有 rebate，避免循环内 N+1 查询
+    unique_ids = list(dict.fromkeys(ids))  # 去重保序
+    rebates_map: dict[int, RebateRecord] = {}
+    if unique_ids:
+        rows = (await db.execute(
+            select(RebateRecord).where(RebateRecord.id.in_(unique_ids))
+        )).scalars().all()
+        rebates_map = {r.id: r for r in rows if r.id is not None}
+    valid: list[RebateRecord] = []
     skipped = 0
-    for rid in ids:
-        r = await get_rebate(db, rid)
+    for rid in unique_ids:
+        r = rebates_map.get(rid)
         if r is None:
             skipped += 1
             continue
-        try:
-            _validate_transition(r.status, "paid")
-            valid_ids.append(rid)
-        except RebateError:
+        # 批量结算语义：只处理 pending 状态。paid/cancelled 一律跳过
+        # （不能用 _validate_transition，因为 paid→paid 是 idempotent no-op 会被误判为合法）。
+        if r.status != "pending":
             skipped += 1
-
-    for rid in valid_ids:
-        r = await get_rebate(db, rid)
+            continue
+        valid.append(r)
+    for r in valid:
         r.status = "paid"
         r.paid_at = now
     await db.flush()
     extra = f"（跳过 {skipped} 笔非法状态）" if skipped > 0 else ""
-    await log_operation(db, "rebate", "batch_pay", detail=f"批量结算 {len(valid_ids)} 笔返利{extra}")
-    return {"updated": len(valid_ids), "skipped": skipped}
+    await log_operation(db, "rebate", "batch_pay", detail=f"批量结算 {len(valid)} 笔返利{extra}")
+    return {"updated": len(valid), "skipped": skipped}
 
 
 async def recalc_pending_rebates(db: AsyncSession) -> int:
@@ -139,9 +147,17 @@ async def recalc_pending_rebates(db: AsyncSession) -> int:
     pending = list(
         (await db.execute(select(RebateRecord).where(RebateRecord.status == "pending"))).scalars().all()
     )
+    # 批量预取交易，避免循环内逐个 db.get 导致 N+1 查询
+    tx_ids = [r.transaction_id for r in pending if r.transaction_id is not None]
+    tx_map: dict[int, Transaction] = {}
+    if tx_ids:
+        rows = (await db.execute(
+            select(Transaction).where(Transaction.id.in_(tx_ids))
+        )).scalars().all()
+        tx_map = {t.id: t for t in rows if t.id is not None}
     updated = 0
     for r in pending:
-        t = await db.get(Transaction, r.transaction_id)
+        t = tx_map.get(r.transaction_id)
         if t is None:
             continue
         base = t.sale_price if s.rebate_base == "sale" else t.profit

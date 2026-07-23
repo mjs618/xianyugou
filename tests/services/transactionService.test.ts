@@ -29,7 +29,7 @@ describe('transactionService', () => {
     const t = await createTransaction({
       customer_id: 5, product_name: '软件激活码',
       sale_price: 128, cost_price: 30, trade_at: new Date('2026-06-01'),
-      status: 'completed', warranty_days: 30, source_type: 'direct',
+      status: 'completed', warranty_days: 30, source_type: 'direct', channel: 'xianyu',
     });
     expect(t.id).toBe(1);
     expect(t.profit).toBe(98);

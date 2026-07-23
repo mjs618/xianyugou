@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     app_name: str = "闲鱼记账与客户管理系统 API"
     host: str = "0.0.0.0"
     port: int = 8000
+    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000"
 
     # 数据库。默认 SQLite 单文件；若要切 MySQL，改为
     # mysql+asyncmy://user:pass@host:3306/xianyu_data
@@ -37,9 +38,19 @@ class Settings(BaseSettings):
     xianyu_mtop_endpoint: str = "https://h5api.m.goofish.com/h5/{api}/{version}/"
     xianyu_origin: str = "https://www.goofish.com"
 
+    # CookieCloud：可选。配置后在闲鱼登录态失效时尝试从自建 CookieCloud 拉取最新 goofish Cookie。
+    cookie_cloud_host: str = ""
+    cookie_cloud_uuid: str = ""
+    cookie_cloud_password: str = ""
+    cookie_cloud_domain_keyword: str = "goofish.com"
+
     @property
     def is_sqlite(self) -> bool:
         return self.database_url.startswith("sqlite")
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
 
 settings = Settings()

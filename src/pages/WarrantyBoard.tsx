@@ -3,14 +3,14 @@ import { Card, Row, Col, Empty, Spin, Button, Tag, Space, Segmented, message, Mo
 import { ExportOutlined, ClockCircleOutlined, PlusOutlined, ToolOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { getAllWarrantyTransactions, getUrgentTransactions, getExpiredTransactions, extendWarranty, endWarrantyEarly } from '@/services/warrantyService';
-import { db } from '@/db';
+import { listCustomers } from '@/services/customerService';
 import { createAfterSales } from '@/services/afterSalesService';
 import { exportTransactionsCSV, downloadFile } from '@/utils/export';
 import { formatMoney } from '@/utils/format';
 import { formatDate, formatDateTime } from '@/utils/date';
 import WarrantyTag from '@/components/WarrantyTag';
 import AttachmentUpload from '@/components/AttachmentUpload';
-import { getWarrantyStatus } from '@/utils/warranty';
+import { getWarrantyStartLabel, getWarrantyStatus } from '@/utils/warranty';
 import dayjs from 'dayjs';
 import type { Transaction, Customer } from '@/types';
 
@@ -35,12 +35,18 @@ export default function WarrantyBoard() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const list = await getAllWarrantyTransactions();
+      const [list, customerList] = await Promise.all([
+        getAllWarrantyTransactions(),
+        listCustomers(),
+      ]);
       // 批量加载关联客户（一次查询，避免 N+1）
-      const ids = Array.from(new Set(list.map((t) => t.customer_id)));
-      const cs = await db.customers.bulkGet(ids);
+      const ids = new Set(list.map((t) => t.customer_id));
       const map = new Map<number, Customer>();
-      cs.forEach((c) => { if (c) map.set(c.id!, c); });
+      customerList.forEach((customer) => {
+        if (customer.id !== undefined && ids.has(customer.id)) {
+          map.set(customer.id, customer);
+        }
+      });
       setCustomers(map);
       list.sort((a, b) => new Date(a.warranty_end!).getTime() - new Date(b.warranty_end!).getTime());
       setAll(list);
@@ -151,6 +157,9 @@ export default function WarrantyBoard() {
         <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginTop: 4 }}>
           {c?.xianyu_nickname || '-'} · {formatMoney(t.sale_price)}
         </div>
+        <div style={{ fontSize: 12, color: 'var(--color-text-tertiary)', marginTop: 2 }}>
+          起算：{getWarrantyStartLabel(t, formatDateTime)}
+        </div>
         <Space size={4} style={{ marginTop: 8 }}>
           <Button size="small" type="link" icon={<PlusOutlined />} onClick={(e) => { e.stopPropagation(); setExtendModal({ open: true, tx: t }); }}>延长</Button>
           <Button size="small" type="link" onClick={(e) => { e.stopPropagation(); setEndModal({ open: true, tx: t }); }}>提前结束</Button>
@@ -164,7 +173,7 @@ export default function WarrantyBoard() {
 
   return (
     <Card
-      title="质保监控"
+      title="质保监控（按发货时间起算）"
       extra={
         <Space>
           <Segmented value={view} onChange={(v) => setView(v as ViewType)} options={[{ label: '看板', value: 'board' }, { label: '列表', value: 'list' }, { label: '日历', value: 'calendar' }]} />
@@ -189,7 +198,7 @@ export default function WarrantyBoard() {
       {view === 'calendar' ? (
         <div>
           <div style={{ marginBottom: 12, fontSize: 12, color: 'var(--color-text-secondary)' }}>
-            日历中标注质保到期日：红色=即将到期（3天内）、绿色=质保中、灰色=已过期。点击日期查看当日到期交易。
+            日历中标注质保到期日：质保从发货时间开始计算；红色=即将到期（3天内）、绿色=质保中、灰色=已过期。点击日期查看当日到期交易。
           </div>
           <Calendar
             cellRender={(date) => {
@@ -263,6 +272,7 @@ export default function WarrantyBoard() {
                 </Space>
                 <Space>
                   <span className="tabular-nums">{formatMoney(t.sale_price)}</span>
+                  <span style={{ color: 'var(--color-text-secondary)', fontSize: 12 }}>起算 {getWarrantyStartLabel(t, formatDateTime)}</span>
                   <span style={{ color: 'var(--color-text-secondary)', fontSize: 12 }}>{formatDateTime(t.warranty_end)}</span>
                   <Button size="small" type="link" onClick={(e) => { e.stopPropagation(); setExtendModal({ open: true, tx: t }); }}>延长</Button>
                   <Button size="small" type="link" onClick={(e) => { e.stopPropagation(); setEndModal({ open: true, tx: t }); }}>提前结束</Button>

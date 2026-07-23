@@ -24,6 +24,9 @@ env/
 .env
 .env.*
 !.env.example
+api.token
+api.token.bak
+*.secret
 
 # Logs
 logs/
@@ -42,6 +45,9 @@ pnpm-debug.log*
 *.sln
 *.sw?
 .trae/
+.playwright-cli/
+/output/playwright/
+/.worktrees/
 
 # OS
 .DS_Store
@@ -52,3 +58,5 @@ desktop.ini
 *.sqlite
 *.sqlite3
 *.db
+/server/backend/data/
+/server/backend/backups/

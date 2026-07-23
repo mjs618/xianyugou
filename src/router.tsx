@@ -18,6 +18,7 @@ const FinanceReport = lazy(() => import('./pages/FinanceReport'));
 const SettingsPage = lazy(() => import('./pages/Settings'));
 const SendMail = lazy(() => import('./pages/SendMail'));
 const OrderSync = lazy(() => import('./pages/OrderSync'));
+const ReplyAssistant = lazy(() => import('./pages/reply-assistant/ReplyAssistantPage'));
 
 const PageLoading = () => (
   <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400 }}>
@@ -48,6 +49,7 @@ export const router = createBrowserRouter([
       { path: 'after-sales', element: withSuspense(<AfterSalesList />) },
       { path: 'finance', element: withSuspense(<FinanceReport />) },
       { path: 'send-mail', element: withSuspense(<SendMail />) },
+      { path: 'reply-assistant', element: withSuspense(<ReplyAssistant />) },
       { path: 'order-sync', element: withSuspense(<OrderSync />) },
       { path: 'settings', element: withSuspense(<SettingsPage />) },
       { path: '*', element: <Navigate to="/" replace /> },

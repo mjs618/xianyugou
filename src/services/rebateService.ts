@@ -69,7 +69,8 @@ export async function markPaid(id: number, notes?: string): Promise<void> {
   try {
     await apiClient.patch(`/api/rebates/${id}`, { status: 'paid', notes });
   } catch (err) {
-    if (isApiError(err, 400)) {
+    // 后端：404 = 不存在，400 = 状态非法
+    if (isApiError(err, 404) || isApiError(err, 400)) {
       throw new Error('返利记录不存在或状态非法');
     }
     throw err;
@@ -81,7 +82,8 @@ export async function cancelRebate(id: number, notes?: string): Promise<void> {
   try {
     await apiClient.patch(`/api/rebates/${id}`, { status: 'cancelled', notes });
   } catch (err) {
-    if (isApiError(err, 400)) {
+    // 后端：404 = 不存在，400 = 状态非法
+    if (isApiError(err, 404) || isApiError(err, 400)) {
       throw new Error('返利记录不存在或状态非法');
     }
     throw err;

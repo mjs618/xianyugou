@@ -18,8 +18,8 @@ class SettingsError(ValueError):
     pass
 
 
-async def get_settings(db: AsyncSession, *, decrypt: bool = True) -> SettingsModel:
-    """获取单例设置。decrypt=False 时 smtp_pass 保持密文（导出场景）。"""
+async def get_settings(db: AsyncSession) -> SettingsModel:
+    """获取单例设置（smtp_pass 保持密文，明文场景用 get_settings_plain）。"""
     s = (await db.execute(select(SettingsModel).where(SettingsModel.id == 1))).scalar_one_or_none()
     if s is None:
         # 首次初始化默认设置
@@ -45,8 +45,10 @@ async def update_settings(db: AsyncSession, patch: dict[str, Any]) -> SettingsMo
     if "rebate_rate" in patch and patch["rebate_rate"] is not None:
         if not (0 <= patch["rebate_rate"] <= 1):
             raise SettingsError("返利比例必须在 0~1 之间")
-    if "warranty_days" in patch and patch["warranty_days"] is not None and patch["warranty_days"] <= 0:
-        raise SettingsError("质保天数必须大于 0")
+    if "warranty_days" in patch and patch["warranty_days"] is not None and patch["warranty_days"] < 0:
+        raise SettingsError("质保天数不能为负数")
+    if "recall_days" in patch and patch["recall_days"] is not None and patch["recall_days"] < 0:
+        raise SettingsError("回访天数不能为负数")
     for k in ("vip_threshold", "core_threshold", "vip_trade_count", "core_trade_count"):
         if k in patch and patch[k] is not None and patch[k] < 0:
             raise SettingsError(f"{k} 不能为负数")
@@ -92,7 +94,7 @@ async def update_settings(db: AsyncSession, patch: dict[str, Any]) -> SettingsMo
 
 async def migrate_encrypt_settings(db: AsyncSession) -> bool:
     """存量明文 smtp_pass 自动加密，返回是否发生迁移。"""
-    s = await get_settings(db, decrypt=False)
+    s = await get_settings(db)
     if s.smtp_pass and not is_encrypted(s.smtp_pass):
         s.smtp_pass = encrypt_field(s.smtp_pass)
         await db.flush()

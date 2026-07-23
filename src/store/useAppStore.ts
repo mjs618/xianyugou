@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Settings } from '@/types';
+import type { PendingSummary, Settings } from '@/types';
 import { DEFAULT_SETTINGS } from '@/types';
 import { getSettings } from '@/services/settingsService';
 import { getUnreadCount, getPendingSummary } from '@/services/notificationService';
@@ -7,7 +7,7 @@ import { getUnreadCount, getPendingSummary } from '@/services/notificationServic
 interface AppState {
   settings: Settings;
   unreadCount: number;
-  pendingSummary: { warrantyUrgent: number; afterSalesPending: number; rebatePending: number };
+  pendingSummary: PendingSummary;
   collapsed: boolean;
   setCollapsed: (v: boolean) => void;
   loadSettings: () => Promise<void>;

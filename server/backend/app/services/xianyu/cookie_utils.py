@@ -6,8 +6,11 @@
 - _m_h5_tk: MTOP 签名 token（格式 token_timestamp，取下划线前半段用于签名）
 - munb: 手机端用户 ID
 """
+import logging
 from typing import Optional
 from http.cookies import SimpleCookie
+
+logger = logging.getLogger(__name__)
 
 
 def parse_cookie_string(cookie_str: str) -> dict[str, str]:
@@ -42,8 +45,9 @@ def parse_cookie_string(cookie_str: str) -> dict[str, str]:
         c.load(normalized)
         for k, morsel in c.items():
             result[k] = morsel.value
-    except Exception:
+    except Exception as e:
         # SimpleCookie 解析失败时，手动按分号拆分
+        logger.debug("SimpleCookie 解析失败，回退手动解析: %s", e)
         for part in normalized.split(";"):
             part = part.strip()
             if "=" in part:

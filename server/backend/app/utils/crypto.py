@@ -12,7 +12,7 @@ from pathlib import Path
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from ..config import BACKEND_DIR
+from ..config import BACKEND_DIR, DEFAULT_DB_PATH
 
 # 加密值前缀，与前端一致，用于判断字段是否已加密
 ENC_PREFIX = "enc:v1:"
@@ -24,6 +24,11 @@ def _load_or_create_key() -> bytes:
     _SECRET_KEY_PATH.parent.mkdir(parents=True, exist_ok=True)
     if _SECRET_KEY_PATH.exists():
         return base64.b64decode(_SECRET_KEY_PATH.read_bytes())
+    if DEFAULT_DB_PATH.exists():
+        raise RuntimeError(
+            "Encryption key is missing while the existing database is present; "
+            "restore the matching key before starting."
+        )
     key = secrets.token_bytes(32)  # AES-256
     _SECRET_KEY_PATH.write_bytes(base64.b64encode(key))
     # 仅本用户可读写（类 Unix）

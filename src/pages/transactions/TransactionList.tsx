@@ -1,20 +1,21 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Card, Table, Button, Space, Input, Select, DatePicker, Tag, Popconfirm, message, Row, Col, Dropdown, Segmented, Empty, Switch, Tooltip, Modal, Result } from 'antd';
+import { Card, Table, Button, Space, Input, Select, DatePicker, Tag, Popconfirm, message, Row, Col, Dropdown, Segmented, Empty, Switch, Tooltip, Modal, Result, Grid } from 'antd';
 import { PlusOutlined, ExportOutlined, DeleteOutlined, EditOutlined, EyeOutlined, DownOutlined, ClockCircleOutlined, CustomerServiceOutlined, CopyOutlined, ReloadOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { listTransactions, softDeleteTransaction, changeStatus } from '@/services/transactionService';
 import { createAfterSales } from '@/services/afterSalesService';
 import { getCustomer } from '@/services/customerService';
 import { exportTransactionsCSV, downloadFile } from '@/utils/export';
-import { formatMoney } from '@/utils/format';
+import { formatMoney, channelLabel, channelColorMap } from '@/utils/format';
 import { formatDate } from '@/utils/date';
-import { getWarrantyStatus } from '@/utils/warranty';
+import { filterTransactions } from '@/utils/transactionFilter';
 import WarrantyTag from '@/components/WarrantyTag';
 import { useAppStore } from '@/store/useAppStore';
-import type { Transaction, TransactionStatus } from '@/types';
+import type { Transaction, TransactionStatus, ChannelType } from '@/types';
 
 const { RangePicker } = DatePicker;
+const { useBreakpoint } = Grid;
 
 const statusMap: Record<TransactionStatus, { label: string; color: string }> = {
   pending: { label: '待发货', color: 'blue' },
@@ -26,11 +27,14 @@ const statusMap: Record<TransactionStatus, { label: string; color: string }> = {
 export default function TransactionList() {
   const navigate = useNavigate();
   const { refreshAll } = useAppStore();
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<Transaction[]>([]);
   const [customers, setCustomers] = useState<Map<number, string>>(new Map());
   const [filtered, setFiltered] = useState<Transaction[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [channelFilter, setChannelFilter] = useState<string>('all');
   const [keyword, setKeyword] = useState('');
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
   const [timeFilter, setTimeFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
@@ -53,7 +57,7 @@ export default function TransactionList() {
       // 用后端内联返回的 customer_name 构建客户名映射（避免 N+1 查询与本地 db 直访）
       const map = new Map<number, string>();
       list.forEach((t) => {
-        const name = (t as any).customer_name as string | undefined;
+        const name = t.customer_name;
         if (name) map.set(t.customer_id, name);
       });
       setCustomers(map);
@@ -74,56 +78,20 @@ export default function TransactionList() {
     loadData();
   }, [loadData]);
 
-  // 筛选
+  // 筛选（逻辑提取至 filterTransactions 纯函数，便于单元测试）
   useEffect(() => {
-    let result = data;
-    if (statusFilter !== 'all') {
-      result = result.filter((t) => t.status === statusFilter);
-    }
-    if (keyword) {
-      const lower = keyword.toLowerCase();
-      result = result.filter(
-        (t) =>
-          t.product_name.toLowerCase().includes(lower) ||
-          (t.xianyu_order_no || '').toLowerCase().includes(lower) ||
-          (customers.get(t.customer_id) || '').toLowerCase().includes(lower)
-      );
-    }
-    if (dateRange) {
-      const [start, end] = dateRange;
-      result = result.filter((t) => {
-        const tt = dayjs(t.trade_at);
-        return tt.isAfter(start.startOf('day')) && tt.isBefore(end.endOf('day'));
-      });
-    }
-    // 时间筛选
-    if (timeFilter !== 'all') {
-      result = result.filter((t) => {
-        const now = new Date();
-        const tradeDate = new Date(t.trade_at);
-        if (timeFilter === 'today') {
-          if (tradeDate.toDateString() !== now.toDateString()) return false;
-        } else if (timeFilter === 'week') {
-          const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-          if (tradeDate < weekAgo) return false;
-        } else if (timeFilter === 'month') {
-          const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-          if (tradeDate < monthAgo) return false;
-        }
-        return true;
-      });
-    }
-    // 质保即将到期筛选
-    if (warrantyUrgentOnly) {
-      result = result.filter((t) => {
-        if (!t.warranty_end) return false;
-        const ws = getWarrantyStatus(t.warranty_end);
-        return ws.type === 'urgent';
-      });
-    }
+    const result = filterTransactions(data, {
+      statusFilter,
+      channelFilter,
+      keyword,
+      dateRange,
+      timeFilter,
+      warrantyUrgentOnly,
+      customers,
+    });
     setFiltered(result);
     setPage(1);
-  }, [data, statusFilter, keyword, dateRange, customers, timeFilter, warrantyUrgentOnly]);
+  }, [data, statusFilter, channelFilter, keyword, dateRange, customers, timeFilter, warrantyUrgentOnly]);
 
   const handleDelete = async (id: number) => {
     try {
@@ -210,15 +178,22 @@ export default function TransactionList() {
 
   const columns = [
     {
-      title: '闲鱼订单号',
+      title: '订单号',
       dataIndex: 'xianyu_order_no',
       width: 140,
       render: (v: string) => v || <span style={{ color: 'var(--color-text-tertiary)' }}>-</span>,
     },
     {
+      title: '渠道',
+      dataIndex: 'channel',
+      width: 70,
+      render: (c: ChannelType) => <Tag color={channelColorMap[c] || 'default'}>{channelLabel(c)}</Tag>,
+    },
+    {
       title: '商品名称',
       dataIndex: 'product_name',
       ellipsis: true,
+      minWidth: 150,
     },
     {
       title: '售价',
@@ -243,7 +218,7 @@ export default function TransactionList() {
       render: (id: number) => {
         const name = customers.get(id);
         return name ? (
-          <a onClick={() => navigate(`/customers/${id}`)}>{name}</a>
+          <Link to={`/customers/${id}`}>{name}</Link>
         ) : '-';
       },
     },
@@ -271,17 +246,23 @@ export default function TransactionList() {
       fixed: 'right' as const,
       render: (_: unknown, r: Transaction) => (
         <Space size={0}>
-          <Tooltip title="详情"><Button type="link" size="small" icon={<EyeOutlined />} onClick={() => navigate(`/transactions/${r.id}`)} /></Tooltip>
-          <Tooltip title="编辑"><Button type="link" size="small" icon={<EditOutlined />} onClick={() => navigate(`/transactions/${r.id}/edit`)} /></Tooltip>
-          <Tooltip title="标记售后"><Button type="link" size="small" icon={<CustomerServiceOutlined />} onClick={() => handleMarkAfterSales(r)} /></Tooltip>
-          <Tooltip title="复制联系方式"><Button type="link" size="small" icon={<CopyOutlined />} onClick={() => handleContact(r.customer_id)} /></Tooltip>
+          <Tooltip title="详情"><Button aria-label={`查看交易 ${r.product_name}`} type="link" size="small" icon={<EyeOutlined />} onClick={() => navigate(`/transactions/${r.id}`)} /></Tooltip>
+          <Tooltip title="编辑"><Button aria-label={`编辑交易 ${r.product_name}`} type="link" size="small" icon={<EditOutlined />} onClick={() => navigate(`/transactions/${r.id}/edit`)} /></Tooltip>
+          <Tooltip title="标记售后"><Button aria-label={`标记交易售后 ${r.product_name}`} type="link" size="small" icon={<CustomerServiceOutlined />} onClick={() => handleMarkAfterSales(r)} /></Tooltip>
+          <Tooltip title="复制联系方式"><Button aria-label={`复制交易买家联系方式 ${r.product_name}`} type="link" size="small" icon={<CopyOutlined />} onClick={() => handleContact(r.customer_id)} /></Tooltip>
           <Popconfirm title="确认删除该交易？" onConfirm={() => handleDelete(r.id!)} okText="删除" cancelText="取消">
-            <Button type="link" size="small" danger icon={<DeleteOutlined />} />
+            <Button aria-label={`删除交易 ${r.product_name}`} type="link" size="small" danger icon={<DeleteOutlined />} />
           </Popconfirm>
         </Space>
       ),
     },
   ];
+
+  // 移动端隐藏非核心列，避免表格列被严重压缩导致商品名称截断
+  const hiddenOnMobile = new Set(['channel', 'profit', 'customer_id', 'trade_at']);
+  const visibleColumns = isMobile
+    ? columns.filter((c) => !hiddenOnMobile.has(c.dataIndex as string))
+    : columns;
 
   return (
     <Card
@@ -308,7 +289,7 @@ export default function TransactionList() {
         <Col xs={24} sm={8}>
           <Input.Search placeholder="搜索商品名/订单号/买家昵称" allowClear value={keyword} onChange={(e) => setKeyword(e.target.value)} />
         </Col>
-        <Col xs={12} sm={6}>
+        <Col xs={12} sm={4}>
           <Select
             style={{ width: '100%' }}
             value={statusFilter}
@@ -322,7 +303,20 @@ export default function TransactionList() {
             ]}
           />
         </Col>
-        <Col xs={12} sm={10}>
+        <Col xs={12} sm={4}>
+          <Select
+            style={{ width: '100%' }}
+            value={channelFilter}
+            onChange={setChannelFilter}
+            options={[
+              { value: 'all', label: '全部渠道' },
+              { value: 'xianyu', label: '闲鱼' },
+              { value: 'wechat', label: '微信' },
+              { value: 'other', label: '其他' },
+            ]}
+          />
+        </Col>
+        <Col xs={24} sm={8}>
           <RangePicker style={{ width: '100%' }} value={dateRange} onChange={(v) => setDateRange(v as any)} />
         </Col>
         <Col xs={24} sm={6}>
@@ -373,8 +367,8 @@ export default function TransactionList() {
         rowKey="id"
         loading={loading}
         dataSource={filtered.slice((page - 1) * pageSize, page * pageSize)}
-        columns={columns}
-        scroll={{ x: 1100 }}
+        columns={visibleColumns}
+        scroll={{ x: isMobile ? 780 : 1170 }}
         size="middle"
         locale={{
           emptyText: data.length === 0 ? (

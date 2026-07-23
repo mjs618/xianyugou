@@ -83,6 +83,16 @@ describe('rebateService', () => {
     await expect(markPaid(1)).rejects.toThrow('不存在或状态非法');
   });
 
+  it('markPaid 后端 404（不存在）应抛友好错误', async () => {
+    setMockError('patch', '/api/rebates/1', 404, '返利记录不存在');
+    await expect(markPaid(1)).rejects.toThrow('不存在或状态非法');
+  });
+
+  it('cancelRebate 后端 404（不存在）应抛友好错误', async () => {
+    setMockError('patch', '/api/rebates/1', 404, '返利记录不存在');
+    await expect(cancelRebate(1)).rejects.toThrow('不存在或状态非法');
+  });
+
   it('batchPay 应 POST /batch-pay', async () => {
     setMockResponse('post', '/api/rebates/batch-pay', { updated: 2, skipped: 1 });
     const r = await batchPay([1, 2, 3]);

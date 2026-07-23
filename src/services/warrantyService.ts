@@ -13,6 +13,7 @@ function normalizeTransaction(t: any): Transaction {
   return {
     ...t,
     trade_at: new Date(t.trade_at),
+    shipped_at: toDate(t.shipped_at),
     warranty_end: toDate(t.warranty_end),
     created_at: new Date(t.created_at),
     updated_at: new Date(t.updated_at),

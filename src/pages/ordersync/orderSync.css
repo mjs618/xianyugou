@@ -1,0 +1,308 @@
+.order-sync-overview {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.order-sync-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.order-sync-summary-item {
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  box-shadow: 0 6px 18px rgba(31, 41, 55, 0.04);
+}
+
+.order-sync-summary-label,
+.order-sync-summary-detail {
+  display: block;
+  color: var(--color-text-secondary);
+}
+
+.order-sync-summary-label {
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.order-sync-summary-value {
+  display: block;
+  overflow: hidden;
+  color: var(--color-dark);
+  font-size: 22px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.order-sync-summary-detail {
+  margin-top: 3px;
+  font-size: 11px;
+}
+
+.order-sync-summary-item--success .order-sync-summary-value { color: var(--color-success); }
+.order-sync-summary-item--warning .order-sync-summary-value { color: #ad6800; }
+.order-sync-summary-item--danger .order-sync-summary-value { color: var(--color-danger); }
+
+.order-sync-task {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 13px 14px;
+  border: 1px solid var(--color-border);
+  border-left-width: 4px;
+  border-radius: 10px;
+}
+
+.order-sync-task--danger {
+  border-color: var(--color-danger-border);
+  border-left-color: var(--color-danger);
+  background: var(--color-danger-light);
+}
+
+.order-sync-task--warning {
+  border-color: var(--color-warning-border);
+  border-left-color: var(--color-warning);
+  background: var(--color-warning-light);
+}
+
+.order-sync-task-icon {
+  padding-top: 2px;
+  color: currentColor;
+  font-size: 18px;
+}
+
+.order-sync-task-content {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.order-sync-task-accounts {
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.order-sync-task-detail {
+  font-size: 12px;
+}
+
+.order-sync-recovery-steps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 5px;
+  color: var(--color-dark);
+  font-size: 12px;
+}
+
+.order-sync-recovery-steps span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.order-sync-recovery-steps b {
+  display: inline-grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--color-surface);
+  font-size: 10px;
+}
+
+.order-sync-recovery-steps i {
+  color: var(--color-text-tertiary);
+  font-style: normal;
+}
+
+.order-sync-service-ok {
+  color: var(--color-success);
+  font-size: 12px;
+}
+
+.order-sync-help-collapse {
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+}
+
+.order-sync-help-collapse .ant-collapse-header {
+  align-items: center !important;
+  min-height: 42px;
+}
+
+.order-sync-help p {
+  margin: 0 0 8px;
+}
+
+.order-sync-account-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+  gap: 14px;
+}
+
+.order-sync-account-card {
+  height: 100%;
+  overflow: hidden;
+  border-color: var(--color-border);
+  border-radius: 12px;
+  box-shadow: 0 7px 22px rgba(31, 41, 55, 0.05);
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.order-sync-account-card:hover {
+  border-color: var(--theme-primary-border);
+  box-shadow: 0 10px 28px rgba(var(--theme-primary-shadow-rgb), 0.1);
+  transform: translateY(-1px);
+}
+
+.order-sync-account-card--paused {
+  border-top: 3px solid var(--color-danger);
+}
+
+.order-sync-account-header,
+.order-sync-account-title-row,
+.order-sync-account-actions,
+.order-sync-interval-row {
+  display: flex;
+  align-items: center;
+}
+
+.order-sync-account-header {
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.order-sync-account-title-row {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.order-sync-account-title-row h2 {
+  margin: 0;
+  color: var(--color-dark);
+  font-size: 17px;
+  line-height: 1.35;
+}
+
+.order-sync-account-id {
+  font-size: 11px;
+}
+
+.order-sync-account-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.order-sync-account-stats > div {
+  min-width: 0;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: var(--color-bg);
+}
+
+.order-sync-account-stats span,
+.order-sync-account-stats strong {
+  display: block;
+}
+
+.order-sync-account-stats span {
+  margin-bottom: 3px;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+}
+
+.order-sync-account-stats strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.order-sync-interval-row {
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.order-sync-interval-row .ant-input-number {
+  width: 72px;
+}
+
+.order-sync-account-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 9px 10px;
+  border: 1px solid var(--color-danger-border);
+  border-radius: 8px;
+  background: var(--color-danger-light);
+  color: var(--color-danger);
+  font-size: 12px;
+}
+
+.order-sync-account-error span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.order-sync-account-error strong {
+  display: block;
+  margin-bottom: 1px;
+}
+
+.order-sync-account-actions {
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.order-sync-account-actions .ant-btn {
+  flex: 1 1 130px;
+}
+
+.order-sync-empty {
+  display: grid;
+  min-height: 260px;
+  place-items: center;
+  border: 1px dashed var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+}
+
+@media (max-width: 900px) {
+  .order-sync-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 520px) {
+  .order-sync-summary-grid { grid-template-columns: 1fr; }
+  .order-sync-task { flex-wrap: wrap; }
+  .order-sync-task > .ant-btn { margin-left: 30px; }
+  .order-sync-recovery-steps { align-items: flex-start; flex-direction: column; }
+  .order-sync-recovery-steps i { display: none; }
+  .order-sync-account-stats { grid-template-columns: 1fr; }
+  .order-sync-account-actions .ant-btn { width: 100%; flex-basis: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .order-sync-account-card { transition: none; }
+  .order-sync-account-card:hover { transform: none; }
+}

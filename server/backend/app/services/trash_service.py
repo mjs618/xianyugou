@@ -2,6 +2,7 @@
 
 含：列出软删除记录、恢复（带校验+级联 recalc）、彻底删除（级联清理关联数据）、过期清理。
 """
+import logging
 from datetime import datetime, timedelta
 from typing import Optional
 from sqlalchemy import select, delete, func
@@ -13,6 +14,8 @@ from ..models import (
 )
 from ..utils.helpers import now_utc
 from .customer_service import recalc_customer_stats
+
+logger = logging.getLogger(__name__)
 
 
 SOFT_DELETE_RETENTION_DAYS = 30
@@ -157,8 +160,8 @@ async def cleanup_expired_soft_deletes(db: AsyncSession) -> dict:
             try:
                 await purge_customer(db, c.id)
                 result["customers"] += 1
-            except Exception as e:
-                print(f"清理过期客户失败: {e}")
+            except Exception:
+                logger.exception("清理过期客户失败 customer_id=%s", c.id)
     # 过期交易
     expired_trades = list((await db.execute(
         select(Transaction).where(Transaction.deleted_at.is_not(None), Transaction.deleted_at < cutoff)
@@ -168,8 +171,8 @@ async def cleanup_expired_soft_deletes(db: AsyncSession) -> dict:
             try:
                 await purge_transaction(db, t.id)
                 result["transactions"] += 1
-            except Exception as e:
-                print(f"清理过期交易失败: {e}")
+            except Exception:
+                logger.exception("清理过期交易失败 transaction_id=%s", t.id)
     # 过期工单
     expired_tickets = list((await db.execute(
         select(AfterSales).where(AfterSales.deleted_at.is_not(None), AfterSales.deleted_at < cutoff)
@@ -179,8 +182,8 @@ async def cleanup_expired_soft_deletes(db: AsyncSession) -> dict:
             try:
                 await purge_after_sales(db, a.id)
                 result["afterSales"] += 1
-            except Exception as e:
-                print(f"清理过期工单失败: {e}")
+            except Exception:
+                logger.exception("清理过期工单失败 aftersales_id=%s", a.id)
     return result
 
 
@@ -189,5 +192,5 @@ async def run_all_cleanup(db: AsyncSession) -> None:
     try:
         await cleanup_expired_soft_deletes(db)
         # 审计日志/通知清理也由后端负责（此处可选实现）
-    except Exception as e:
-        print(f"清理任务执行失败: {e}")
+    except Exception:
+        logger.exception("清理任务执行失败")

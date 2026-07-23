@@ -2,11 +2,23 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Transaction, WarrantyExtension
 from ..utils.helpers import now_utc
+
+
+class WarrantyError(ValueError):
+    """质保业务校验错误（如延长天数 ≤ 0）。路由层捕获后返回 400。"""
+
+
+class WarrantyNotFoundError(WarrantyError):
+    """交易不存在错误。路由层捕获后返回 404（与 expenses/mail_record/aftersales 一致）。
+
+    继承自 WarrantyError 以保持向后兼容：现有 except ValueError 代码
+    仍可捕获到 NotFound 场景，只是路由层会优先捕获子类返回 404。
+    """
 
 
 async def get_active_transactions(db: AsyncSession) -> list[Transaction]:
@@ -39,6 +51,20 @@ async def get_urgent_transactions(db: AsyncSession) -> list[Transaction]:
     return list((await db.execute(stmt)).scalars().all())
 
 
+async def count_urgent_transactions(db: AsyncSession) -> int:
+    """即将到期（3天内）交易计数 - 用 COUNT 替代加载完整对象。"""
+    now = now_utc()
+    urgent = now + timedelta(days=3)
+    return (await db.execute(
+        select(func.count(Transaction.id)).where(
+            Transaction.deleted_at.is_(None),
+            Transaction.warranty_end.is_not(None),
+            Transaction.warranty_end > now,
+            Transaction.warranty_end <= urgent,
+        )
+    )).scalar_one()
+
+
 async def get_expired_transactions(db: AsyncSession) -> list[Transaction]:
     """已过期"""
     now = now_utc()
@@ -67,9 +93,9 @@ async def extend_warranty(
     """延长质保。记录历史。"""
     t = await db.get(Transaction, tx_id)
     if t is None or t.deleted_at is not None:
-        raise ValueError("交易不存在")
+        raise WarrantyNotFoundError("交易不存在")
     if days <= 0:
-        raise ValueError("延长天数必须大于 0")
+        raise WarrantyError("延长天数必须大于 0")
     old_end = t.warranty_end or now_utc()
     new_end = old_end + timedelta(days=days)
     db.add(WarrantyExtension(
@@ -87,7 +113,7 @@ async def end_warranty_early(db: AsyncSession, tx_id: int) -> Transaction:
     """提前结束质保。"""
     t = await db.get(Transaction, tx_id)
     if t is None or t.deleted_at is not None:
-        raise ValueError("交易不存在")
+        raise WarrantyNotFoundError("交易不存在")
     old_end = t.warranty_end or now_utc()
     new_end = now_utc()
     db.add(WarrantyExtension(

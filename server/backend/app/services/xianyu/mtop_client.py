@@ -62,6 +62,7 @@ class MtopClient:
         self.cookies = parse_cookie_string(cookie_str)
         self.token = get_token(self.cookies) or ""
         self.unb = self.cookies.get("unb")
+        self.cookies_changed = False
         self._timeout = timeout
 
     def _build_params(self, api: str, data: str, timestamp: str) -> dict:
@@ -95,18 +96,22 @@ class MtopClient:
     def _refresh_token_from_response(self, response: httpx.Response) -> bool:
         """从响应的 Set-Cookie 提取新的 _m_h5_tk，更新 token。返回是否刷新成功。"""
         new_tk = None
+        new_tk_enc = None
         for header_val in response.headers.get_list("set-cookie"):
             # 格式: _m_h5_tk=token_timestamp; ...
             for part in header_val.split(";"):
                 part = part.strip()
                 if part.startswith("_m_h5_tk="):
                     new_tk = part[len("_m_h5_tk="):]
-                    break
-            if new_tk:
-                break
+                elif part.startswith("_m_h5_tk_enc="):
+                    new_tk_enc = part[len("_m_h5_tk_enc="):]
         if new_tk and "_" in new_tk:
             self.token = new_tk.split("_")[0]
             self.cookies["_m_h5_tk"] = new_tk
+            if new_tk_enc:
+                self.cookies["_m_h5_tk_enc"] = new_tk_enc
+            self.cookie_str = cookies_to_header(self.cookies)
+            self.cookies_changed = True
             return True
         return False
 
@@ -131,7 +136,7 @@ class MtopClient:
         try:
             body = resp.json()
         except Exception:
-            raise MtopError("PARSE_ERROR", f"响应非 JSON: {resp.text[:200]}")
+            raise MtopError("PARSE_ERROR", "闲鱼接口响应格式异常，未记录原始响应")
 
         ret = body.get("ret", [])
         ret_str = "; ".join(ret) if isinstance(ret, list) else str(ret)

@@ -1,20 +1,20 @@
 import { useEffect, useState } from 'react';
-import { Card, Form, Input, InputNumber, Radio, DatePicker, Button, Space, Row, Col, Divider, message, Modal, Switch, Tag } from 'antd';
+import { Card, Form, Button, Space, Row, Col, message, Modal } from 'antd';
 import { ArrowLeftOutlined, SaveOutlined, PlusCircleOutlined } from '@ant-design/icons';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
-import CustomerSelect from '@/components/CustomerSelect';
-import ProductTemplateSelect from '@/components/ProductTemplateSelect';
-import AttachmentUpload from '@/components/AttachmentUpload';
-import { createCustomer, findByNickname, getCustomer } from '@/services/customerService';
+import { getCustomer } from '@/services/customerService';
 import { createTransaction, updateTransaction, getTransaction, calcProfit } from '@/services/transactionService';
-import { getSettings } from '@/services/settingsService';
 import { useAppStore } from '@/store/useAppStore';
-import { formatMoney } from '@/utils/format';
-import { calcWarrantyEnd } from '@/utils/warranty';
-import type { Customer, SourceType, TransactionStatus, TransactionInput } from '@/types';
-
-const { TextArea } = Input;
+import { calcWarrantyEnd, getEnabledWarrantyDays, getWarrantyFormDefaults } from '@/utils/warranty';
+import { getErrorMessage, isValidationError } from '@/utils/error';
+import type { Customer, SourceType, ChannelType, TransactionStatus } from '@/types';
+import CustomerInfoCard from './form/CustomerInfoCard';
+import TransactionInfoCard from './form/TransactionInfoCard';
+import SourceWarrantyCard from './form/SourceWarrantyCard';
+import NotesAttachmentsCard from './form/NotesAttachmentsCard';
+import { buildTransactionInput, resolveCustomerId } from './form/buildTransactionInput';
+import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
 
 export default function TransactionForm() {
   const navigate = useNavigate();
@@ -25,21 +25,26 @@ export default function TransactionForm() {
   const { settings, refreshAll } = useAppStore();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
+  const [dirty, setDirty] = useState(false);
   const [customer, setCustomer] = useState<Customer | undefined>();
   const [isNewCustomer, setIsNewCustomer] = useState(false);
   const [newNickname, setNewNickname] = useState('');
   const [salePrice, setSalePrice] = useState(0);
   const [costPrice, setCostPrice] = useState(0);
-  const [warrantyDays, setWarrantyDays] = useState(settings.warranty_days);
+  const initialWarranty = getWarrantyFormDefaults(settings.warranty_days);
+  const [warrantyDays, setWarrantyDays] = useState(initialWarranty.warrantyDays);
+  const [hasWarranty, setHasWarranty] = useState(initialWarranty.hasWarranty);
   const [sourceType, setSourceType] = useState<SourceType>('direct');
+  const [channel, setChannel] = useState<ChannelType>('xianyu');
   const [tradeAt, setTradeAt] = useState<dayjs.Dayjs>(dayjs());
+  const [shippedAt, setShippedAt] = useState<dayjs.Dayjs>(dayjs());
   const [status, setStatus] = useState<TransactionStatus>('completed');
+  const { allowNavigation } = useUnsavedChanges({ dirty, submitting: loading });
 
   useEffect(() => {
     if (isEdit) {
       loadEditData();
     } else if (presetCustomerId) {
-      // 从 URL 参数预选客户
       loadPresetCustomer(Number(presetCustomerId));
     }
   }, [id]);
@@ -64,8 +69,11 @@ export default function TransactionForm() {
     setSalePrice(t.sale_price);
     setCostPrice(t.cost_price);
     setWarrantyDays(t.warranty_days);
+    setHasWarranty(t.warranty_days > 0);
     setSourceType(t.source_type);
+    setChannel(t.channel);
     setTradeAt(dayjs(t.trade_at));
+    setShippedAt(t.shipped_at ? dayjs(t.shipped_at) : dayjs(t.trade_at));
     setStatus(t.status);
     form.setFieldsValue({
       customer_id: t.customer_id,
@@ -75,17 +83,23 @@ export default function TransactionForm() {
       sale_price: t.sale_price,
       cost_price: t.cost_price,
       warranty_days: t.warranty_days,
+      has_warranty: t.warranty_days > 0,
       source_type: t.source_type,
+      channel: t.channel,
       source_customer_id: t.source_customer_id,
       notes: t.notes,
       status: t.status,
       trade_at: dayjs(t.trade_at),
+      shipped_at: t.shipped_at ? dayjs(t.shipped_at) : dayjs(t.trade_at),
       attachments: t.attachments || [],
     });
   };
 
   const profit = calcProfit(salePrice, costPrice);
-  const warrantyEnd = status === 'completed' ? calcWarrantyEnd(tradeAt.toDate(), warrantyDays) : undefined;
+  const warrantyStart = shippedAt || tradeAt;
+  const warrantyEnd = status === 'completed' && hasWarranty && warrantyDays > 0
+    ? calcWarrantyEnd(warrantyStart.toDate(), warrantyDays)
+    : undefined;
   const expectedRebate = sourceType === 'introduced' ? Math.round((settings.rebate_base === 'sale' ? salePrice : profit) * settings.rebate_rate * 100) / 100 : 0;
 
   // 黑名单警示
@@ -101,15 +115,30 @@ export default function TransactionForm() {
 
   const handleTemplateChange = (_: unknown, tpl?: { default_cost: number; default_sale_price?: number; name: string; warranty_days: number }) => {
     if (tpl) {
+      setDirty(true);
       setCostPrice(tpl.default_cost);
       if (tpl.default_sale_price) setSalePrice(tpl.default_sale_price);
       setWarrantyDays(tpl.warranty_days);
+      setHasWarranty(tpl.warranty_days > 0);
       form.setFieldsValue({
         product_name: tpl.name,
         cost_price: tpl.default_cost,
         sale_price: tpl.default_sale_price,
         warranty_days: tpl.warranty_days,
+        has_warranty: tpl.warranty_days > 0,
       });
+    }
+  };
+
+  const handleWarrantyToggle = (checked: boolean) => {
+    setHasWarranty(checked);
+    if (checked) {
+      const nextDays = getEnabledWarrantyDays(warrantyDays, settings.warranty_days);
+      setWarrantyDays(nextDays);
+      form.setFieldValue('warranty_days', nextDays);
+    } else {
+      setWarrantyDays(0);
+      form.setFieldValue('warranty_days', 0);
     }
   };
 
@@ -118,32 +147,14 @@ export default function TransactionForm() {
       const values = await form.validateFields();
       setLoading(true);
 
-      let customerId = values.customer_id;
-
-      // 新客户创建
-      if (isNewCustomer) {
-        if (!newNickname.trim()) {
-          message.error('请输入客户昵称');
-          setLoading(false);
-          return;
-        }
-        const existing = await findByNickname(newNickname);
-        if (existing) {
-          customerId = existing.id;
-          message.info(`客户「${existing.xianyu_nickname}」已存在，已自动关联`);
-        } else {
-          const c = await createCustomer({ xianyu_nickname: newNickname, contact_info: values.contact_info });
-          customerId = c.id;
-        }
-      }
-
+      const { customerId, message: msg, messageText } = await resolveCustomerId(values, isNewCustomer, newNickname, values.customer_id);
+      if (msg === 'info' && messageText) message.info(messageText);
       if (!customerId) {
-        message.error('请选择客户');
+        if (messageText) message.error(messageText);
         setLoading(false);
         return;
       }
 
-      // 介绍来源校验
       if (values.source_type === 'introduced' && !values.source_customer_id) {
         message.error('请选择介绍人');
         setLoading(false);
@@ -155,36 +166,31 @@ export default function TransactionForm() {
         return;
       }
 
-      const input: TransactionInput = {
-        customer_id: customerId,
-        xianyu_order_no: values.xianyu_order_no,
-        product_name: values.product_name,
-        product_template_id: values.product_template_id,
-        sale_price: Number(values.sale_price),
-        cost_price: Number(values.cost_price),
-        trade_at: (values.trade_at || tradeAt).toDate(),
-        status: values.status || status,
-        warranty_days: Number(values.warranty_days || warrantyDays),
-        source_type: values.source_type || sourceType,
-        source_customer_id: values.source_customer_id,
-        notes: values.notes,
-        attachments: values.attachments || [],
-      };
+      const input = buildTransactionInput({
+        form,
+        customerId,
+        fallbackTradeAt: tradeAt,
+        fallbackShippedAt: shippedAt,
+        fallbackStatus: status,
+        fallbackSourceType: sourceType,
+        fallbackChannel: channel,
+        fallbackWarrantyDays: warrantyDays,
+      });
 
       if (isEdit) {
         await updateTransaction(Number(id), input);
         message.success('交易已更新');
-        refreshAll();
-        navigate('/transactions');
       } else {
         await createTransaction(input);
         message.success('交易已创建');
-        refreshAll();
-        navigate('/transactions');
       }
-    } catch (err: any) {
-      if (err?.errorFields) return; // 表单校验错误
-      message.error(err?.message || '操作失败');
+      refreshAll();
+      allowNavigation();
+      setDirty(false);
+      navigate('/transactions');
+    } catch (err: unknown) {
+      if (isValidationError(err)) return;
+      message.error(getErrorMessage(err, '操作失败'));
     } finally {
       setLoading(false);
     }
@@ -196,25 +202,10 @@ export default function TransactionForm() {
       const values = await form.validateFields();
       setLoading(true);
 
-      let customerId = values.customer_id;
-
-      if (isNewCustomer) {
-        if (!newNickname.trim()) {
-          message.error('请输入客户昵称');
-          setLoading(false);
-          return;
-        }
-        const existing = await findByNickname(newNickname);
-        if (existing) {
-          customerId = existing.id;
-        } else {
-          const c = await createCustomer({ xianyu_nickname: newNickname, contact_info: values.contact_info });
-          customerId = c.id;
-        }
-      }
-
+      const { customerId, message: msg, messageText } = await resolveCustomerId(values, isNewCustomer, newNickname, values.customer_id);
+      if (msg === 'info' && messageText) message.info(messageText);
       if (!customerId) {
-        message.error('请选择客户');
+        if (messageText) message.error(messageText);
         setLoading(false);
         return;
       }
@@ -225,21 +216,16 @@ export default function TransactionForm() {
         return;
       }
 
-      const input: TransactionInput = {
-        customer_id: customerId,
-        xianyu_order_no: values.xianyu_order_no,
-        product_name: values.product_name,
-        product_template_id: values.product_template_id,
-        sale_price: Number(values.sale_price),
-        cost_price: Number(values.cost_price),
-        trade_at: (values.trade_at || tradeAt).toDate(),
-        status: values.status || status,
-        warranty_days: Number(values.warranty_days || warrantyDays),
-        source_type: values.source_type || sourceType,
-        source_customer_id: values.source_customer_id,
-        notes: values.notes,
-        attachments: values.attachments || [],
-      };
+      const input = buildTransactionInput({
+        form,
+        customerId,
+        fallbackTradeAt: tradeAt,
+        fallbackShippedAt: shippedAt,
+        fallbackStatus: status,
+        fallbackSourceType: sourceType,
+        fallbackChannel: channel,
+        fallbackWarrantyDays: warrantyDays,
+      });
 
       await createTransaction(input);
       message.success('交易已创建，可继续录入下一笔');
@@ -250,18 +236,24 @@ export default function TransactionForm() {
       form.setFieldsValue({
         customer_id: customerId,
         source_type: values.source_type,
+        channel: values.channel,
         source_customer_id: values.source_customer_id,
         status: 'completed',
         trade_at: dayjs(),
-        warranty_days: settings.warranty_days,
+        shipped_at: dayjs(),
+        has_warranty: initialWarranty.hasWarranty,
+        warranty_days: initialWarranty.warrantyDays,
       });
       setSalePrice(0);
       setCostPrice(0);
-      setWarrantyDays(settings.warranty_days);
+      setWarrantyDays(initialWarranty.warrantyDays);
+      setHasWarranty(initialWarranty.hasWarranty);
       setTradeAt(dayjs());
-    } catch (err: any) {
-      if (err?.errorFields) return;
-      message.error(err?.message || '操作失败');
+      setShippedAt(dayjs());
+      setDirty(false);
+    } catch (err: unknown) {
+      if (isValidationError(err)) return;
+      message.error(getErrorMessage(err, '操作失败'));
     } finally {
       setLoading(false);
     }
@@ -287,149 +279,68 @@ export default function TransactionForm() {
         </Space>
       }
     >
-      <Form form={form} layout="vertical" initialValues={{ status: 'completed', source_type: 'direct', warranty_days: settings.warranty_days, trade_at: dayjs() }}>
+      <Form
+        form={form}
+        layout="vertical"
+        onValuesChange={() => setDirty(true)}
+        initialValues={{ status: 'completed', source_type: 'direct', channel: 'xianyu', has_warranty: initialWarranty.hasWarranty, warranty_days: initialWarranty.warrantyDays, trade_at: dayjs(), shipped_at: dayjs() }}
+      >
         <Row gutter={24}>
           <Col xs={24} lg={12}>
-            <Card type="inner" title="客户信息" size="small">
-              <Form.Item label="客户选择方式">
-                <Radio.Group value={isNewCustomer} onChange={(e) => setIsNewCustomer(e.target.value)}>
-                  <Radio.Button value={false}>选择老客户</Radio.Button>
-                  <Radio.Button value={true}>新建客户</Radio.Button>
-                </Radio.Group>
-              </Form.Item>
-
-              {isNewCustomer ? (
-                <>
-                  <Form.Item label="闲鱼昵称" required>
-                    <Input placeholder="输入新客户闲鱼昵称" value={newNickname} onChange={(e) => setNewNickname(e.target.value)} />
-                  </Form.Item>
-                  <Form.Item name="contact_info" label="联系方式（选填）">
-                    <Input placeholder="微信/手机号" />
-                  </Form.Item>
-                </>
-              ) : (
-                <>
-                  <Form.Item name="customer_id" label="闲鱼昵称" rules={[{ required: true, message: '请选择客户' }]}>
-                    <CustomerSelect value={undefined} onChange={(_v, c) => setCustomer(c)} />
-                  </Form.Item>
-                  {customer && (
-                    <div style={{ marginBottom: 16, fontSize: 12, color: 'var(--color-text-secondary)' }}>
-                      累计消费 {formatMoney(customer.total_spent)} · {customer.trade_count} 笔 · 等级{' '}
-                      <Tag color={customer.level === 'core' ? 'red' : customer.level === 'vip' ? 'gold' : 'default'}>
-                        {customer.level === 'core' ? '核心' : customer.level === 'vip' ? 'VIP' : '普通'}
-                      </Tag>
-                      {customer.is_blacklist && <Tag color="red">黑名单</Tag>}
-                    </div>
-                  )}
-                </>
-              )}
-            </Card>
+            <CustomerInfoCard
+              form={form}
+              isNewCustomer={isNewCustomer}
+              onToggleNewCustomer={setIsNewCustomer}
+              newNickname={newNickname}
+              onNewNicknameChange={(value) => {
+                setNewNickname(value);
+                setDirty(true);
+              }}
+              customer={customer}
+              onCustomerChange={setCustomer}
+            />
           </Col>
-
           <Col xs={24} lg={12}>
-            <Card type="inner" title="交易信息" size="small">
-              <Form.Item name="product_template_id" label="商品模板（选填，自动填充）">
-                <ProductTemplateSelect value={undefined} onChange={handleTemplateChange} />
-              </Form.Item>
-              <Form.Item name="product_name" label="商品名称" rules={[{ required: true, message: '请输入商品名称' }]}>
-                <Input placeholder="商品名称" />
-              </Form.Item>
-              <Row gutter={12}>
-                <Col span={12}>
-                  <Form.Item name="sale_price" label="售价" rules={[{ required: true, message: '请输入售价' }]}>
-                    <InputNumber
-                      style={{ width: '100%' }}
-                      min={0}
-                      precision={2}
-                      prefix="¥"
-                      value={salePrice}
-                      onChange={(v) => setSalePrice(Number(v) || 0)}
-                    />
-                  </Form.Item>
-                </Col>
-                <Col span={12}>
-                  <Form.Item name="cost_price" label="成本" rules={[{ required: true, message: '请输入成本' }]}>
-                    <InputNumber
-                      style={{ width: '100%' }}
-                      min={0}
-                      precision={2}
-                      prefix="¥"
-                      value={costPrice}
-                      onChange={(v) => setCostPrice(Number(v) || 0)}
-                    />
-                  </Form.Item>
-                </Col>
-              </Row>
-              <div style={{ marginBottom: 16, padding: '8px 12px', background: 'var(--color-success-light)', borderRadius: 6 }}>
-                利润：<span style={{ color: 'var(--color-success)', fontWeight: 600, fontSize: 16 }} className="tabular-nums">{formatMoney(profit)}</span>
-              </div>
-              <Form.Item name="xianyu_order_no" label="闲鱼订单号（选填）">
-                <Input placeholder="闲鱼订单号" />
-              </Form.Item>
-              <Row gutter={12}>
-                <Col span={12}>
-                  <Form.Item name="trade_at" label="交易时间">
-                    <DatePicker showTime style={{ width: '100%' }} value={tradeAt} onChange={(v) => v && setTradeAt(v)} />
-                  </Form.Item>
-                </Col>
-                <Col span={12}>
-                  <Form.Item name="status" label="交易状态">
-                    <Radio.Group value={status} onChange={(e) => setStatus(e.target.value)}>
-                      <Radio.Button value="pending">待发货</Radio.Button>
-                      <Radio.Button value="completed">已完成</Radio.Button>
-                    </Radio.Group>
-                  </Form.Item>
-                </Col>
-              </Row>
-            </Card>
+            <TransactionInfoCard
+              form={form}
+              onTemplateChange={handleTemplateChange}
+              salePrice={salePrice}
+              onSalePriceChange={setSalePrice}
+              costPrice={costPrice}
+              onCostPriceChange={setCostPrice}
+              profit={profit}
+              channel={channel}
+              onChannelChange={setChannel}
+              status={status}
+              onStatusChange={setStatus}
+              tradeAt={tradeAt}
+              onTradeAtChange={setTradeAt}
+              shippedAt={shippedAt}
+              onShippedAtChange={setShippedAt}
+            />
           </Col>
         </Row>
 
         <Row gutter={24} style={{ marginTop: 16 }}>
           <Col xs={24} lg={12}>
-            <Card type="inner" title="来源与质保" size="small">
-              <Form.Item name="source_type" label="客户来源">
-                <Radio.Group value={sourceType} onChange={(e) => setSourceType(e.target.value)}>
-                  <Radio.Button value="direct">直接下单</Radio.Button>
-                  <Radio.Button value="introduced">客户介绍</Radio.Button>
-                  <Radio.Button value="repeat">老客复购</Radio.Button>
-                </Radio.Group>
-              </Form.Item>
-
-              {sourceType === 'introduced' && (
-                <Form.Item name="source_customer_id" label="介绍人" rules={[{ required: true, message: '请选择介绍人' }]}>
-                  <CustomerSelect placeholder="搜索介绍人昵称" excludeId={customer?.id} />
-                </Form.Item>
-              )}
-
-              <Form.Item name="warranty_days" label="质保周期（天）">
-                <InputNumber min={0} max={3650} value={warrantyDays} onChange={(v) => setWarrantyDays(Number(v) || 0)} style={{ width: 120 }} />
-              </Form.Item>
-
-              {warrantyEnd && (
-                <div style={{ marginBottom: 8, fontSize: 13, color: 'var(--color-text-secondary)' }}>
-                  质保到期：<span style={{ color: 'var(--color-dark)' }}>{dayjs(warrantyEnd).format('YYYY-MM-DD HH:mm')}</span>
-                </div>
-              )}
-
-              {expectedRebate > 0 && (
-                <div style={{ padding: '8px 12px', background: 'var(--theme-primary-light)', borderRadius: 6, fontSize: 13 }}>
-                  预计返利：<span style={{ color: 'var(--theme-primary)', fontWeight: 600 }} className="tabular-nums">{formatMoney(expectedRebate)}</span>
-                  <span style={{ color: 'var(--color-text-secondary)', marginLeft: 8 }}>（{settings.rebate_base === 'profit' ? '利润' : '售价'} × {Math.round(settings.rebate_rate * 100)}%）</span>
-                </div>
-              )}
-            </Card>
+            <SourceWarrantyCard
+              form={form}
+              sourceType={sourceType}
+              onSourceTypeChange={setSourceType}
+              customer={customer}
+              hasWarranty={hasWarranty}
+              onWarrantyToggle={handleWarrantyToggle}
+              warrantyDays={warrantyDays}
+              onWarrantyDaysChange={setWarrantyDays}
+              warrantyEnd={warrantyEnd}
+              shippedAt={shippedAt}
+              expectedRebate={expectedRebate}
+              rebateBase={settings.rebate_base}
+              rebateRate={settings.rebate_rate}
+            />
           </Col>
-
           <Col xs={24} lg={12}>
-            <Card type="inner" title="备注与附件" size="small">
-              <Form.Item name="notes" label="交易备注">
-                <TextArea rows={4} placeholder="添加交易备注..." />
-              </Form.Item>
-              <Form.Item name="attachments" label="交易附件">
-                <AttachmentUpload />
-              </Form.Item>
-            </Card>
+            <NotesAttachmentsCard form={form} />
           </Col>
         </Row>
       </Form>

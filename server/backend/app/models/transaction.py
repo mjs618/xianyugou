@@ -1,4 +1,4 @@
-"""交易相关模型：Transaction / ProductTemplate / WarrantyExtension"""
+"""交易相关模型：Transaction / ProductTemplate / WarrantyExtension / OperatingExpense"""
 from datetime import datetime
 from typing import List, Optional
 from sqlalchemy import DateTime, Float, Integer, String, Boolean, ForeignKey, Text, func
@@ -18,8 +18,11 @@ class ProductTemplate(TimestampMixin, Base):
     default_cost: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     default_sale_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     category: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    image_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     warranty_days: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    source_xianyu_account_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    source_xianyu_item_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
 
 
 class Transaction(TimestampMixin, Base):
@@ -35,11 +38,13 @@ class Transaction(TimestampMixin, Base):
     cost_price: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     profit: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     trade_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    shipped_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", index=True)
     # pending/completed/aftersales/closed
     warranty_end: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
     warranty_days: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
     source_type: Mapped[str] = mapped_column(String(20), nullable=False, default="direct")  # direct/introduced/repeat
+    channel: Mapped[str] = mapped_column(String(20), nullable=False, default="xianyu", index=True)  # xianyu/wechat/other 销售渠道
     source_customer_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     attachments: Mapped[List[str]] = mapped_column(JSON, nullable=False, default=list)
@@ -58,3 +63,15 @@ class WarrantyExtension(Base):
     extended_days: Mapped[int] = mapped_column(Integer, nullable=False)
     reason: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+
+
+class OperatingExpense(TimestampMixin, Base):
+    """运营支出记录，如擦亮费、推广费、平台服务费。"""
+    __tablename__ = "operating_expenses"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    category: Mapped[str] = mapped_column(String(64), nullable=False, default="擦亮", index=True)
+    amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)

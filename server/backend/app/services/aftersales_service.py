@@ -14,6 +14,14 @@ class AfterSalesError(ValueError):
     pass
 
 
+class AfterSalesNotFoundError(AfterSalesError):
+    """资源不存在错误。路由层捕获后返回 404（与 expenses/mail_record 一致）。
+
+    继承自 AfterSalesError 以保持向后兼容：现有 except AfterSalesError 代码
+    仍可捕获到 NotFound 场景，只是路由层会优先捕获子类返回 404。
+    """
+
+
 async def get_aftersales(db: AsyncSession, ticket_id: int) -> AfterSales | None:
     a = await db.get(AfterSales, ticket_id)
     if a is None or a.deleted_at is not None:
@@ -42,7 +50,7 @@ async def create_aftersales(
 ) -> AfterSales:
     tx = await db.get(Transaction, transaction_id)
     if tx is None or tx.deleted_at is not None:
-        raise AfterSalesError("交易不存在")
+        raise AfterSalesNotFoundError("交易不存在")
 
     original_status = tx.status if tx.status != "aftersales" else None
     a = AfterSales(
@@ -69,7 +77,7 @@ async def create_aftersales(
 async def delete_aftersales(db: AsyncSession, ticket_id: int) -> None:
     a = await get_aftersales(db, ticket_id)
     if a is None:
-        raise AfterSalesError("工单不存在")
+        raise AfterSalesNotFoundError("工单不存在")
     a.deleted_at = now_utc()
     await db.flush()
     await log_operation(db, "aftersales", "delete", target_id=ticket_id, detail=f"工单:{a.issue_desc[:30]}")
@@ -85,7 +93,7 @@ async def update_status(
     """更新工单状态。resolved/closed 时计算耗时并尝试恢复交易状态。"""
     a = await get_aftersales(db, ticket_id)
     if a is None:
-        raise AfterSalesError("工单不存在")
+        raise AfterSalesNotFoundError("工单不存在")
 
     a.status = status
     if solution_type:
@@ -162,17 +170,23 @@ async def get_after_sales_stats(db: AsyncSession) -> dict:
 
 
 async def get_top_issue_products(db: AsyncSession, limit: int = 10) -> list[dict]:
-    """高频问题商品（内存 join 工单→交易）。复刻前端 getTopIssueProducts。"""
-    all_tickets = list((await db.execute(select(AfterSales))).scalars().all())
-    all_trades = list((await db.execute(select(Transaction))).scalars().all())
-    tx_by_id = {t.id: t for t in all_trades if t.id is not None}
-    agg: dict[str, int] = {}
-    for a in all_tickets:
-        t = tx_by_id.get(a.transaction_id)
-        if t is None:
-            continue
-        agg[t.product_name] = agg.get(t.product_name, 0) + 1
-    result = [{"productName": k, "count": v} for k, v in agg.items()]
-    result.sort(key=lambda x: x["count"], reverse=True)
-    return result[:limit]
+    """高频问题商品（SQL JOIN 工单→交易 + GROUP BY 聚合）。
+
+    优化：用单次 SQL JOIN + GROUP BY + ORDER BY + LIMIT，避免全表加载到内存。
+    """
+    rows = (
+        await db.execute(
+            select(
+                Transaction.product_name,
+                func.count(AfterSales.id).label("cnt"),
+            ).join(
+                Transaction, AfterSales.transaction_id == Transaction.id
+            ).group_by(
+                Transaction.product_name
+            ).order_by(
+                func.count(AfterSales.id).desc()
+            ).limit(limit)
+        )
+    ).all()
+    return [{"productName": name, "count": count} for name, count in rows]
 

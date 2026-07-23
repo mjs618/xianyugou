@@ -3,7 +3,6 @@
 含：标签 CRUD、删除标签时级联清理客户 tags 字段与关联表、
 setCustomerTags 自动建标签 + 重建关联。
 """
-from datetime import datetime
 from typing import Optional
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +13,18 @@ from ..utils.helpers import now_utc
 
 class TagError(ValueError):
     pass
+
+
+class TagNotFoundError(TagError):
+    """资源不存在错误（标签或客户）。路由层捕获后返回 404
+    （与 expenses/mail_record/aftersales/warranty 一致）。
+
+    继承自 TagError 以保持向后兼容：现有 except TagError 代码
+    仍可捕获到 NotFound 场景，只是路由层会优先捕获子类返回 404。
+
+    同时表示「标签不存在」（delete_tag）与「客户不存在」（set_customer_tags），
+    因为两者在 customer-tag 模块语义上都是「关联资源不存在」。
+    """
 
 
 async def list_tags(db: AsyncSession) -> list[CustomerTag]:
@@ -37,16 +48,24 @@ async def create_tag(db: AsyncSession, name: str, color: Optional[str] = None) -
 
 
 async def delete_tag(db: AsyncSession, tag_id: int) -> None:
-    """删除标签 + 级联清理客户 tags 字段 + 关联表。"""
+    """删除标签 + 级联清理客户 tags 字段 + 关联表。不存在时抛 TagNotFoundError。"""
     tag = await db.get(CustomerTag, tag_id)
     if tag is None:
-        return
+        raise TagNotFoundError("标签不存在")
     # 查找关联了此标签的客户，从其 tags 数组移除标签名
     relations = list((await db.execute(
         select(CustomerTagRelation).where(CustomerTagRelation.tag_id == tag_id)
     )).scalars().all())
+    # 批量加载关联客户，避免循环内逐个 db.get 导致 N+1 查询
+    customer_ids = [r.customer_id for r in relations]
+    customers_map: dict[int, Customer] = {}
+    if customer_ids:
+        rows = (await db.execute(
+            select(Customer).where(Customer.id.in_(customer_ids))
+        )).scalars().all()
+        customers_map = {c.id: c for c in rows if c.id is not None}
     for r in relations:
-        c = await db.get(Customer, r.customer_id)
+        c = customers_map.get(r.customer_id)
         if c:
             c.tags = [t for t in (c.tags or []) if t != tag.name]
             c.updated_at = now_utc()
@@ -74,7 +93,7 @@ async def set_customer_tags(db: AsyncSession, customer_id: int, tag_names: list[
     """为客户设置标签：自动建缺失标签 + 更新客户 tags 字段 + 重建关联。"""
     customer = await db.get(Customer, customer_id)
     if customer is None or customer.deleted_at is not None:
-        raise TagError("客户不存在")
+        raise TagNotFoundError("客户不存在")
 
     cleaned = [n.strip() for n in tag_names if n and n.strip()]
 

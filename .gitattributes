@@ -1,0 +1,4 @@
+# 统一 Python 文件使用 LF 行尾符
+# 避免 Windows core.autocrlf=true 导致部分文件工作区 LF / 其他文件 CRLF 的不一致
+# 该规则让 git 对 .py 文件不做 LF<->CRLF 转换，index 与工作区保持一致
+*.py text eol=lf

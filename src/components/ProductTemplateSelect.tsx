@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Select } from 'antd';
+import { Select, message } from 'antd';
 import { listTemplates } from '@/services/productTemplateService';
 import type { ProductTemplate } from '@/types';
 
@@ -13,7 +13,12 @@ export default function ProductTemplateSelect({ value, onChange, placeholder = '
   const [templates, setTemplates] = useState<ProductTemplate[]>([]);
 
   useEffect(() => {
-    listTemplates().then(setTemplates);
+    listTemplates()
+      .then(setTemplates)
+      .catch((err: unknown) => {
+        console.error('加载商品模板失败:', err);
+        message.error('加载商品模板失败，请重试');
+      });
   }, []);
 
   return (

@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Upload, Button, message, Space, Modal, Empty } from 'antd';
 import { PlusOutlined, DeleteOutlined, PaperClipOutlined } from '@ant-design/icons';
-import { addAttachment, deleteAttachment, getAttachments, MAX_ATTACHMENT_SIZE, ACCEPTED_IMAGE_TYPES } from '@/services/attachmentService';
+import { addAttachment, deleteAttachment, getAttachmentContentUrl, getAttachments, MAX_ATTACHMENT_SIZE, ACCEPTED_IMAGE_TYPES } from '@/services/attachmentService';
+import { getErrorMessage } from '@/utils/error';
 import type { Attachment } from '@/types';
 
 interface AttachmentUploadProps {
@@ -31,20 +32,13 @@ export default function AttachmentUpload({ value = [], onChange, disabled, maxCo
     loadAttachments();
   }, [loadAttachments]);
 
-  // 为每个附件生成稳定的预览 URL（组件卸载或附件变化时自动释放）
   const previewUrls = useMemo(() => {
     const map = new Map<number, string>();
     for (const att of attachments) {
-      map.set(att.id!, URL.createObjectURL(att.blob));
+      map.set(att.id, getAttachmentContentUrl(att.id));
     }
     return map;
   }, [attachments]);
-
-  useEffect(() => {
-    return () => {
-      previewUrls.forEach((url) => URL.revokeObjectURL(url));
-    };
-  }, [previewUrls]);
 
   // 处理文件选择（antd Upload beforeUpload 返回 false 阻止自动上传）
   const handleBeforeUpload = async (file: File): Promise<boolean> => {
@@ -67,8 +61,8 @@ export default function AttachmentUpload({ value = [], onChange, disabled, maxCo
       const nextIds = [...value, String(att.id)];
       onChange?.(nextIds);
       message.success(`「${file.name}」已上传`);
-    } catch (err: any) {
-      message.error(err?.message || '上传失败');
+    } catch (err: unknown) {
+      message.error(getErrorMessage(err, '上传失败'));
     } finally {
       setUploading(false);
     }
@@ -94,7 +88,7 @@ export default function AttachmentUpload({ value = [], onChange, disabled, maxCo
 
   // 预览大图
   const handlePreview = (att: Attachment) => {
-    const url = previewUrls.get(att.id!);
+      const url = previewUrls.get(att.id);
     if (url) {
       setPreviewSrc(url);
       setPreviewOpen(true);
@@ -138,7 +132,7 @@ export default function AttachmentUpload({ value = [], onChange, disabled, maxCo
                 danger
                 size="small"
                 icon={<DeleteOutlined />}
-                onClick={(e) => { e.stopPropagation(); handleDelete(att.id!); }}
+                onClick={(e) => { e.stopPropagation(); handleDelete(att.id); }}
                 style={{ position: 'absolute', top: 2, right: 2, minWidth: 24, padding: 0 }}
               />
             )}

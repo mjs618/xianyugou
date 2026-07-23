@@ -1,14 +1,15 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Card, Table, Button, Space, Input, Tabs, Tag, Avatar, Popconfirm, message, Tooltip, Select, Empty, Modal, Form, Result } from 'antd';
 import { PlusOutlined, EditOutlined, EyeOutlined, StopOutlined, CheckCircleOutlined, ExportOutlined, DeleteOutlined, TagOutlined, CopyOutlined, ReloadOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { listCustomers, toggleBlacklist, softDeleteCustomer, setCustomerTags, updateCustomer, isChurnRisk } from '@/services/customerService';
 import { listAfterSales } from '@/services/afterSalesService';
 import { listTransactions } from '@/services/transactionService';
-import { db } from '@/db';
+import { getReferrerRankings } from '@/services/referralService';
 import { exportCustomersCSV, downloadFile } from '@/utils/export';
 import { formatMoney } from '@/utils/format';
 import { formatDate } from '@/utils/date';
+import { getErrorMessage, isValidationError } from '@/utils/error';
 import dayjs from 'dayjs';
 import type { Customer, CustomerLevel } from '@/types';
 
@@ -40,10 +41,10 @@ export default function CustomerList() {
     setLoading(true);
     setLoadError(false);
     try {
-      const [list, aftersales, links, trades] = await Promise.all([
+      const [list, aftersales, rankings, trades] = await Promise.all([
         listCustomers(),
         listAfterSales(),
-        db.customerLinks.toArray(),
+        getReferrerRankings(),
         listTransactions(),
       ]);
       list.sort((a, b) => (b.first_trade_at ? new Date(b.first_trade_at).getTime() : 0) - (a.first_trade_at ? new Date(a.first_trade_at).getTime() : 0));
@@ -60,13 +61,19 @@ export default function CustomerList() {
       });
       setLastTradeMap(lastMap);
       // 通过售后工单关联的交易，反查客户 ID
-      const txIds = new Set(aftersales.map((a) => a.transaction_id));
-      const txs = await db.transactions.bulkGet(Array.from(txIds));
+      const transactionById = new Map(
+        trades
+          .filter((trade) => trade.id !== undefined)
+          .map((trade) => [trade.id!, trade]),
+      );
       const asCustomerIds = new Set<number>();
-      txs.forEach((t) => { if (t) asCustomerIds.add(t.customer_id); });
+      aftersales.forEach((ticket) => {
+        const transaction = transactionById.get(ticket.transaction_id);
+        if (transaction) asCustomerIds.add(transaction.customer_id);
+      });
       setHasAftersalesIds(asCustomerIds);
       // 介绍人 ID 集合
-      setReferrerIds(new Set(links.map((l) => l.referrer_id)));
+      setReferrerIds(new Set(rankings.map((ranking) => ranking.referrerId)));
     } catch (err) {
       console.error('客户数据加载失败:', err);
       setLoadError(true);
@@ -153,10 +160,10 @@ export default function CustomerList() {
       setEditingCustomer(null);
       editForm.resetFields();
       loadData();
-    } catch (err: any) {
-      if (err?.errorFields) return; // 表单校验错误，不提示
+    } catch (err: unknown) {
+      if (isValidationError(err)) return; // 表单校验错误，不提示
       console.error('保存客户失败:', err);
-      message.error(err instanceof Error ? err.message : '保存失败');
+      message.error(getErrorMessage(err, '保存失败'));
     }
   };
 
@@ -202,7 +209,7 @@ export default function CustomerList() {
           <Avatar style={{ background: r.level === 'core' ? 'var(--color-danger)' : r.level === 'vip' ? 'var(--color-warning)' : 'var(--color-info)' }}>
             {name.charAt(0)}
           </Avatar>
-          <a onClick={() => navigate(`/customers/${r.id}`)}>{name}</a>
+          <Link to={`/customers/${r.id}`}>{name}</Link>
         </Space>
       ),
     },
@@ -269,18 +276,18 @@ export default function CustomerList() {
       width: 260,
       render: (_: unknown, r: Customer) => (
         <Space size={0}>
-          <Tooltip title="详情"><Button type="link" size="small" icon={<EyeOutlined />} onClick={() => navigate(`/customers/${r.id}`)} /></Tooltip>
-          <Tooltip title="编辑"><Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(r)} /></Tooltip>
-          <Tooltip title="添加标签"><Button type="link" size="small" icon={<TagOutlined />} onClick={() => handleManageTags(r)} /></Tooltip>
-          <Tooltip title="复制联系方式"><Button type="link" size="small" icon={<CopyOutlined />} onClick={() => handleContact(r)} /></Tooltip>
+          <Tooltip title="详情"><Button aria-label={`查看客户 ${r.xianyu_nickname}`} type="link" size="small" icon={<EyeOutlined />} onClick={() => navigate(`/customers/${r.id}`)} /></Tooltip>
+          <Tooltip title="编辑"><Button aria-label={`编辑客户 ${r.xianyu_nickname}`} type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(r)} /></Tooltip>
+          <Tooltip title="添加标签"><Button aria-label={`管理客户标签 ${r.xianyu_nickname}`} type="link" size="small" icon={<TagOutlined />} onClick={() => handleManageTags(r)} /></Tooltip>
+          <Tooltip title="复制联系方式"><Button aria-label={`复制客户联系方式 ${r.xianyu_nickname}`} type="link" size="small" icon={<CopyOutlined />} onClick={() => handleContact(r)} /></Tooltip>
           <Tooltip title={r.is_blacklist ? '取消黑名单' : '加入黑名单'}>
             <Popconfirm title={r.is_blacklist ? '取消黑名单？' : '加入黑名单？'} onConfirm={() => handleToggleBlacklist(r.id!)}>
-              <Button type="link" size="small" danger={!r.is_blacklist} icon={r.is_blacklist ? <CheckCircleOutlined /> : <StopOutlined />} />
+              <Button aria-label={`${r.is_blacklist ? '取消客户黑名单' : '加入客户黑名单'} ${r.xianyu_nickname}`} type="link" size="small" danger={!r.is_blacklist} icon={r.is_blacklist ? <CheckCircleOutlined /> : <StopOutlined />} />
             </Popconfirm>
           </Tooltip>
           <Tooltip title="删除客户">
             <Popconfirm title="确认删除该客户？" description="删除后客户将不再显示，关联交易数据保留。" onConfirm={() => handleDelete(r.id!)}>
-              <Button type="link" size="small" danger icon={<DeleteOutlined />} />
+              <Button aria-label={`删除客户 ${r.xianyu_nickname}`} type="link" size="small" danger icon={<DeleteOutlined />} />
             </Popconfirm>
           </Tooltip>
         </Space>

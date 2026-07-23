@@ -30,8 +30,3 @@ export async function deleteMailRecord(id: number): Promise<void> {
 export async function clearMailRecords(): Promise<void> {
   await apiClient.delete('/api/mail-records');
 }
-
-// 存量加密迁移 —— no-op（加密由后端处理）
-export async function migrateEncryptMailRecords(): Promise<void> {
-  return;
-}

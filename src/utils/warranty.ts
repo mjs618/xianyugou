@@ -1,5 +1,6 @@
-import type { WarrantyStatus, WarrantyStatusType } from '@/types';
+import type { Transaction, WarrantyStatus, WarrantyStatusType } from '@/types';
 import { daysBetween } from './date';
+import { WARRANTY_URGENT_DAYS } from '@/config/constants';
 
 // 质保状态计算（BR-2 相关展示）
 export function getWarrantyStatus(warrantyEnd?: Date | string | null): WarrantyStatus {
@@ -10,7 +11,7 @@ export function getWarrantyStatus(warrantyEnd?: Date | string | null): WarrantyS
   if (daysLeft <= 0) {
     return { type: 'expired', label: '已过期', color: 'gray', daysLeft: 0 };
   }
-  if (daysLeft <= 3) {
+  if (daysLeft <= WARRANTY_URGENT_DAYS) {
     return { type: 'urgent', label: `剩${daysLeft}天`, color: 'red', daysLeft };
   }
   return { type: 'active', label: `剩${daysLeft}天`, color: 'green', daysLeft };
@@ -35,4 +36,29 @@ export function calcWarrantyEnd(completedAt: Date, days: number): Date {
   const end = new Date(completedAt);
   end.setDate(end.getDate() + days);
   return end;
+}
+
+export function canManageWarranty(transaction: Transaction): boolean {
+  return transaction.status === 'completed' && transaction.warranty_days > 0 && Boolean(transaction.warranty_end);
+}
+
+export function getWarrantyStartLabel(transaction: Transaction, formatDateTime: (date: Date) => string): string {
+  if (transaction.warranty_days <= 0) return '不质保';
+  if (!transaction.shipped_at) return '发货后起算';
+  return formatDateTime(transaction.shipped_at);
+}
+
+export function getWarrantyDaysLabel(days: number): string {
+  return days > 0 ? `${days} 天` : '不质保';
+}
+
+export function getWarrantyFormDefaults(defaultWarrantyDays: number): { hasWarranty: boolean; warrantyDays: number } {
+  const warrantyDays = Math.max(0, defaultWarrantyDays);
+  return { hasWarranty: warrantyDays > 0, warrantyDays };
+}
+
+export function getEnabledWarrantyDays(currentDays: number, defaultWarrantyDays: number): number {
+  if (currentDays > 0) return currentDays;
+  if (defaultWarrantyDays > 0) return defaultWarrantyDays;
+  return 30;
 }

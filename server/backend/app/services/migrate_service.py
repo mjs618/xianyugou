@@ -3,7 +3,7 @@
 import 备份：清空后批量写入（敏感字段导入为明文，由写入逻辑加密）。
 export 备份：导出明文，敏感字段解密（与前端 exportJSON 口径一致）。
 
-备份 data 结构（13 个键）：
+备份 data 结构（含运营支出）：
 customers, transactions, customer_links, after_sales, rebate_records,
 product_templates, settings, customer_tags, customer_tag_relations,
 warranty_extensions, notification_records, attachments, mail_records
@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import (
     Customer, CustomerLink, CustomerTag, CustomerTagRelation,
-    Transaction, ProductTemplate, WarrantyExtension, AfterSales,
+    Transaction, ProductTemplate, WarrantyExtension, OperatingExpense, AfterSales,
     RebateRecord, NotificationRecord, Attachment, MailRecord, Settings as SettingsModel,
 )
 from ..utils.crypto import encrypt_field, decrypt_field, is_encrypted
@@ -36,7 +36,7 @@ async def _clear_all(db: AsyncSession) -> None:
     """清空所有业务表（保留表结构）"""
     for model in [
         CustomerTagRelation, CustomerTag, NotificationRecord, WarrantyExtension,
-        RebateRecord, AfterSales, CustomerLink, Transaction, ProductTemplate,
+        OperatingExpense, RebateRecord, AfterSales, CustomerLink, Transaction, ProductTemplate,
         Attachment, MailRecord, Customer, SettingsModel,
     ]:
         await db.execute(delete(model))
@@ -71,10 +71,10 @@ CUSTOMER_DATE = {"first_trade_at","created_at","updated_at","deleted_at"}
 
 TRANSACTION_COLS = {
     "id","customer_id","xianyu_order_no","product_name","product_template_id","sale_price",
-    "cost_price","profit","trade_at","status","warranty_end","warranty_days","source_type",
+    "cost_price","profit","trade_at","shipped_at","status","warranty_end","warranty_days","source_type",
     "source_customer_id","notes","attachments","version","created_at","updated_at","deleted_at",
 }
-TRANSACTION_DATE = {"trade_at","warranty_end","created_at","updated_at","deleted_at"}
+TRANSACTION_DATE = {"trade_at","shipped_at","warranty_end","created_at","updated_at","deleted_at"}
 
 LINK_COLS = {"id","referrer_id","buyer_id","transaction_id","level","created_at"}
 LINK_DATE = {"created_at"}
@@ -90,8 +90,13 @@ REBATE_COLS = {
 }
 REBATE_DATE = {"paid_at","created_at"}
 
+EXPENSE_COLS = {
+    "id","category","amount","occurred_at","notes","created_at","updated_at","deleted_at",
+}
+
 TEMPLATE_COLS = {
-    "id","name","default_cost","default_sale_price","category","warranty_days","is_active","created_at","updated_at",
+    "id","name","default_cost","default_sale_price","category","image_url","warranty_days","is_active",
+    "source_xianyu_account_id","source_xianyu_item_id","created_at","updated_at",
 }
 TEMPLATE_DATE = {"created_at","updated_at"}
 
@@ -155,6 +160,9 @@ async def import_backup(db: AsyncSession, backup: dict) -> dict:
     if data.get("rebate_records"):
         objs = _bulk(RebateRecord, data["rebate_records"], REBATE_COLS)
         db.add_all(objs); counts["rebate_records"] = len(objs)
+    if data.get("operating_expenses"):
+        objs = _bulk(OperatingExpense, data["operating_expenses"], EXPENSE_COLS)
+        db.add_all(objs); counts["operating_expenses"] = len(objs)
     if data.get("customer_tags"):
         objs = _bulk(CustomerTag, data["customer_tags"], TAG_COLS)
         db.add_all(objs); counts["customer_tags"] = len(objs)
@@ -237,6 +245,7 @@ async def export_backup(db: AsyncSession) -> dict:
     links = [_to_dict(c) for c in (await db.execute(select(CustomerLink))).scalars().all()]
     aftersales = [_to_dict(c) for c in (await db.execute(select(AfterSales))).scalars().all()]
     rebates = [_to_dict(c) for c in (await db.execute(select(RebateRecord))).scalars().all()]
+    expenses = [_to_dict(c) for c in (await db.execute(select(OperatingExpense))).scalars().all()]
     templates = [_to_dict(c) for c in (await db.execute(select(ProductTemplate))).scalars().all()]
     tags = [_to_dict(c) for c in (await db.execute(select(CustomerTag))).scalars().all()]
     tag_rels = [_to_dict(c) for c in (await db.execute(select(CustomerTagRelation))).scalars().all()]
@@ -271,6 +280,7 @@ async def export_backup(db: AsyncSession) -> dict:
             "customer_links": links,
             "after_sales": aftersales,
             "rebate_records": rebates,
+            "operating_expenses": expenses,
             "product_templates": templates,
             "settings": [settings_plain],
             "customer_tags": tags,

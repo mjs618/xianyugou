@@ -1,6 +1,9 @@
 """通用工具：日期解析、数值精度、默认设置"""
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class ConcurrencyError(Exception):
@@ -10,8 +13,12 @@ class ConcurrencyError(Exception):
 
 
 def now_utc() -> datetime:
-    """当前 UTC 时间（naive，与 SQLite DateTime 默认一致）"""
-    return datetime.utcnow()
+    """当前 UTC 时间（naive，与 SQLite DateTime 默认一致）。
+
+    使用 timezone-aware API 再剥离时区，等价于已弃用的 datetime.utcnow()，
+    避免 Python 3.12+ 的 DeprecationWarning。
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def to_aware(dt: Optional[datetime]) -> Optional[datetime]:
@@ -24,14 +31,18 @@ def to_aware(dt: Optional[datetime]) -> Optional[datetime]:
 
 
 def parse_date(value: Any) -> Optional[datetime]:
-    """宽松解析日期：支持 datetime / ISO 字符串 / epoch(ms) / None"""
+    """宽松解析日期：支持 datetime / ISO 字符串 / epoch(ms) / None。
+
+    无法解析时返回 None 并记录 warning，便于上游排查脏数据。
+    None 与空字符串视为合法的"无值"输入，不记录日志。
+    """
     if value is None or value == "":
         return None
     if isinstance(value, datetime):
         return value
     if isinstance(value, (int, float)):
-        # 毫秒时间戳
-        return datetime.utcfromtimestamp(value / 1000.0)
+        # 毫秒时间戳（naive UTC）
+        return datetime.fromtimestamp(value / 1000.0, timezone.utc).replace(tzinfo=None)
     if isinstance(value, str):
         s = value.strip()
         if not s:
@@ -43,7 +54,8 @@ def parse_date(value: Any) -> Optional[datetime]:
             pass
         # 尝试纯数字时间戳
         if s.isdigit():
-            return datetime.utcfromtimestamp(int(s) / 1000.0)
+            return datetime.fromtimestamp(int(s) / 1000.0, timezone.utc).replace(tzinfo=None)
+    logger.warning("parse_date 无法解析日期值: %r (type=%s)", value, type(value).__name__)
     return None
 
 

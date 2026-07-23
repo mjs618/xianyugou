@@ -8,7 +8,7 @@
 - 标签 / 附件等数组字段，SQLite/MySQL 用 JSON 列存储
 """
 from .customer import Customer, CustomerLink, CustomerTag, CustomerTagRelation
-from .transaction import Transaction, ProductTemplate, WarrantyExtension
+from .transaction import Transaction, ProductTemplate, WarrantyExtension, OperatingExpense
 from .aftersales import AfterSales
 from .rebate import RebateRecord
 from .notification import NotificationRecord
@@ -18,7 +18,8 @@ from .audit import OperationLog
 from .settings import Settings as SettingsModel
 # 同时暴露原始类名，供 service 直接 import
 from .settings import Settings  # noqa: F401
-from .xianyu import XianyuAccount, XianyuSyncLog
+from .xianyu import XianyuAccount, XianyuItem, XianyuOrder, XianyuSyncLog
+from .reply_assistant import ReplyAssistantSettings, ReplyRule
 
 __all__ = [
     "Customer",
@@ -28,6 +29,7 @@ __all__ = [
     "Transaction",
     "ProductTemplate",
     "WarrantyExtension",
+    "OperatingExpense",
     "AfterSales",
     "RebateRecord",
     "NotificationRecord",
@@ -36,5 +38,9 @@ __all__ = [
     "OperationLog",
     "SettingsModel",
     "XianyuAccount",
+    "XianyuItem",
+    "XianyuOrder",
     "XianyuSyncLog",
+    "ReplyAssistantSettings",
+    "ReplyRule",
 ]

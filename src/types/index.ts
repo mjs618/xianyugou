@@ -9,6 +9,9 @@ export type TransactionStatus = 'pending' | 'completed' | 'aftersales' | 'closed
 // 来源类型
 export type SourceType = 'direct' | 'introduced' | 'repeat';
 
+// 销售渠道（与 source_type 正交：在哪个平台成交）
+export type ChannelType = 'xianyu' | 'wechat' | 'other';
+
 // 售后状态
 export type AfterSalesStatus = 'pending' | 'processing' | 'resolved' | 'closed';
 
@@ -27,7 +30,9 @@ export type NotificationType =
   | 'aftersales_pending'
   | 'rebate_pending'
   | 'customer_recall'
-  | 'mail_alert';
+  | 'mail_alert'
+  | 'account_paused'
+  | 'account_recovered';
 
 // 通知状态
 export type NotificationStatus = 'unread' | 'read' | 'dismissed';
@@ -57,6 +62,8 @@ export interface Customer {
 export interface Transaction {
   id?: number;
   customer_id: number;
+  /** 后端 list 接口内联返回的客户昵称（仅查询结果中出现，写入时不传） */
+  customer_name?: string;
   xianyu_order_no?: string;
   product_name: string;
   product_template_id?: number;
@@ -64,10 +71,12 @@ export interface Transaction {
   cost_price: number;
   profit: number;
   trade_at: Date;
+  shipped_at?: Date;
   status: TransactionStatus;
   warranty_end?: Date;
   warranty_days: number;
   source_type: SourceType;
+  channel: ChannelType;
   source_customer_id?: number;
   notes?: string;
   attachments: string[];
@@ -119,6 +128,17 @@ export interface RebateRecord {
   created_at: Date;
 }
 
+// 运营支出记录（擦亮费、推广费等）
+export interface OperatingExpense {
+  id: number;
+  category: string;
+  amount: number;
+  occurred_at: Date;
+  notes?: string;
+  created_at: Date;
+  updated_at: Date;
+}
+
 // 商品模板表
 export interface ProductTemplate {
   id?: number;
@@ -126,8 +146,11 @@ export interface ProductTemplate {
   default_cost: number;
   default_sale_price?: number;
   category?: string;
+  image_url?: string;
   warranty_days: number;
   is_active: boolean;
+  source_xianyu_account_id?: number;
+  source_xianyu_item_id?: string;
   created_at: Date;
   updated_at: Date;
 }
@@ -156,6 +179,12 @@ export interface NotificationRecord {
   created_at: Date;
 }
 
+export interface PendingSummary {
+  warrantyUrgent: number;
+  afterSalesPending: number;
+  rebatePending: number;
+}
+
 // 客户标签表
 export interface CustomerTag {
   id?: number;
@@ -175,11 +204,10 @@ export interface CustomerTagRelation {
 
 // 附件表（存储图片 Blob，供交易/售后工单引用）
 export interface Attachment {
-  id?: number;
+  id: number;
   name: string;
   type: string;
   size: number;
-  blob: Blob;
   created_at: Date;
 }
 
@@ -255,6 +283,7 @@ export interface FinanceOverview {
   totalIncome: number;
   totalCost: number;
   totalProfit: number;
+  operatingExpense?: number;
   profitRate: number;
   tradeCount: number;
   prevIncome: number;
@@ -282,11 +311,33 @@ export interface MonthlyComparisonPoint {
   tradeCount: number;  // 交易笔数
 }
 
+// 渠道占比数据点（财务报表按销售渠道拆分）
+export interface ChannelBreakdownItem {
+  channel: ChannelType;
+  income: number;
+  cost: number;
+  profit: number;
+  count: number;
+}
+
+// POST /api/finance/backfill-cost 响应：一次性回填历史 cost_price=0 交易的成本价
+export interface BackfillCostResult {
+  /** 找到匹配模板的交易数（含模板成本仍为 0 的） */
+  matched: number;
+  /** 实际回填了成本（模板 default_cost > 0）的交易数 */
+  backfilled: number;
+  /** 无镜像 / 无 itemId / 无匹配模板的交易数 */
+  skipped_no_template: number;
+  /** 匹配到模板但模板成本仍为 0 的交易数 */
+  skipped_zero_cost_template: number;
+}
+
 // 商品利润统计
 export interface ProductProfitStat {
   productName: string;
   totalProfit: number;
   totalIncome: number;
+  totalCost: number;
   count: number;
   profitRate: number;
 }
@@ -319,9 +370,11 @@ export interface TransactionInput {
   sale_price: number;
   cost_price: number;
   trade_at: Date;
+  shipped_at?: Date;
   status: TransactionStatus;
   warranty_days: number;
   source_type: SourceType;
+  channel: ChannelType;
   source_customer_id?: number;
   notes?: string;
   attachments?: string[];
@@ -354,7 +407,7 @@ export const DEFAULT_SETTINGS: Settings = {
 // ==================== 闲鱼账号与订单同步 ====================
 
 // 闲鱼账号状态
-export type XianyuAccountStatus = 'online' | 'invalid' | 'risk';
+export type XianyuAccountStatus = 'online' | 'invalid' | 'risk' | 'paused';
 
 // 闲鱼账号
 export interface XianyuAccount {
@@ -364,6 +417,11 @@ export interface XianyuAccount {
   status: XianyuAccountStatus;
   last_sync_at?: Date;
   last_error?: string;
+  // P3 安全调度字段
+  auto_sync_enabled: boolean;
+  auto_sync_interval_minutes: number;
+  consecutive_failures: number;
+  paused_at?: Date;
   created_at: Date;
   updated_at: Date;
 }
@@ -381,6 +439,16 @@ export interface XianyuAccountTestResult {
   message: string;
 }
 
+// CookieCloud 自动续 Cookie 配置状态（不包含任何密钥值）
+export interface CookieCloudConfigStatus {
+  enabled: boolean;
+  configured_keys: string[];
+  missing_keys: string[];
+  domain_keyword: string;
+  message: string;
+  next_step: string;
+}
+
 // 订单同步结果
 export interface XianyuSyncResult {
   success: boolean;
@@ -388,6 +456,48 @@ export interface XianyuSyncResult {
   created_count: number;
   skipped_count: number;
   error?: string;
+}
+
+export interface XianyuItemSyncResult {
+  success: boolean;
+  fetched: number;
+  upserted_count: number;
+  error?: string;
+}
+
+export interface XianyuItemImportResult {
+  created_count: number;
+  skipped_count: number;
+}
+
+export interface XianyuItem {
+  id: number;
+  account_id: number;
+  item_id: string;
+  title?: string;
+  price: number;
+  item_status?: string;
+  image_url?: string;
+  projected_template_id?: number;
+  last_seen_at: Date;
+  created_at: Date;
+  updated_at: Date;
+}
+
+// 闲鱼订单镜像（不含 raw_order，避免前端暴露平台原始响应）
+export interface XianyuOrder {
+  id: number;
+  account_id: number;
+  order_no: string;
+  order_status?: string;
+  buyer_nick?: string;
+  product_name?: string;
+  sale_price: number;
+  trade_at?: Date;
+  projected_transaction_id?: number;
+  last_seen_at: Date;
+  created_at: Date;
+  updated_at: Date;
 }
 
 // 同步日志
@@ -399,5 +509,75 @@ export interface XianyuSyncLog {
   created_count: number;
   skipped_count: number;
   error?: string;
+  sync_type?: 'order' | 'item';
   created_at: Date;
+}
+
+// ==================== 回复助手 ====================
+
+export interface ReplyAssistantSettings {
+  id: number;
+  enabled: boolean;
+  ai_enabled: boolean;
+  api_base_url: string;
+  api_key_configured: boolean;
+  model: string;
+  system_prompt: string;
+}
+
+export interface ReplyAssistantSettingsUpdate {
+  enabled?: boolean;
+  ai_enabled?: boolean;
+  api_base_url?: string;
+  api_key?: string;
+  clear_api_key?: boolean;
+  model?: string;
+  system_prompt?: string;
+}
+
+export interface ReplyRule {
+  id: number;
+  name: string;
+  enabled: boolean;
+  priority: number;
+  keywords: string[];
+  reply_text: string;
+  product_template_id: number | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface ReplyRuleInput {
+  name: string;
+  enabled?: boolean;
+  priority?: number;
+  keywords: string[];
+  reply_text: string;
+  product_template_id?: number | null;
+}
+
+export interface ReplyContextMessage {
+  role: 'user' | 'seller';
+  content: string;
+}
+
+export interface ReplySuggestionInput {
+  account_id: number;
+  product_template_id?: number;
+  buyer_message: string;
+  context_messages?: ReplyContextMessage[];
+}
+
+export interface ReplySuggestion {
+  reply: string;
+  source: 'rule' | 'ai';
+  matched_rule_id: number | null;
+  risk_level: 'normal' | 'manual_required';
+  risk_reasons: string[];
+  copy_allowed: boolean;
+}
+
+export interface ReplyRiskCheck {
+  risk_level: 'normal' | 'manual_required';
+  risk_reasons: string[];
 }

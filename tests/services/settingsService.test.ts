@@ -38,16 +38,18 @@ describe('settingsService', () => {
     expect(calls[0].body).toMatchObject({ warranty_days: 60, rebate_rate: 0.15 });
   });
 
+  it('updateSettings 应允许 warranty_days 为 0 表示默认不质保', async () => {
+    setMockResponse('put', '/api/settings', { ...DEFAULT_SETTINGS, warranty_days: 0 });
+    const s = await updateSettings({ warranty_days: 0 });
+    expect(s.warranty_days).toBe(0);
+    expect((getMockCalls('put', '/api/settings')[0].body as any).warranty_days).toBe(0);
+  });
+
   it('updateSettings 部分更新应只传指定字段', async () => {
     setMockResponse('put', '/api/settings', { ...DEFAULT_SETTINGS, recall_days: 60 });
     await updateSettings({ recall_days: 60 });
     const body = getMockCalls('put', '/api/settings')[0].body as any;
     expect(body.recall_days).toBe(60);
     expect(body.warranty_days).toBeUndefined(); // 未指定字段不应传递
-  });
-
-  it('migrateEncryptSettings 应为 no-op（加密由后端处理）', async () => {
-    const { migrateEncryptSettings } = await import('@/services/settingsService');
-    await expect(migrateEncryptSettings()).resolves.toBeUndefined();
   });
 });

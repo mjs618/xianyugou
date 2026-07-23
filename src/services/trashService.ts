@@ -7,8 +7,6 @@ import { apiClient } from './apiClient';
 
 // 软删除保留天数（Settings 页显示用，与后端一致）
 export const SOFT_DELETE_RETENTION_DAYS = 30;
-export const AUDIT_LOG_RETENTION_DAYS = 90;
-export const NOTIFICATION_RETENTION_DAYS = 30;
 
 // 日期归一化
 function toDate(v: unknown): Date | undefined {
@@ -69,27 +67,4 @@ export async function purgeTransaction(id: number): Promise<void> {
 
 export async function purgeAfterSales(id: number): Promise<void> {
   await apiClient.delete(`/api/trash/after-sales/${id}/purge`);
-}
-
-// ==================== 过期清理（应用启动时调用）====================
-
-// 后端在 lifespan 启动时不会自动清理（避免每次重启扫表）。
-// 前端启动时触发一次清理（轻量 HTTP 调用，后端按 30 天阈值清理）。
-// 当前后端未暴露清理端点，此函数为 no-op，清理由后端定时任务或手动触发。
-export async function cleanupExpiredSoftDeletes(): Promise<{ customers: number; transactions: number; afterSales: number }> {
-  // TODO: 后端可加 /api/trash/cleanup 端点。当前返回空结果。
-  return { customers: 0, transactions: 0, afterSales: 0 };
-}
-
-export async function cleanupOldLogs(): Promise<number> {
-  return 0;
-}
-
-export async function cleanupOldNotifications(): Promise<number> {
-  return 0;
-}
-
-export async function runAllCleanup(): Promise<void> {
-  // 数据已迁后端，过期清理由后端负责。前端启动不再扫描本地表。
-  return;
 }
